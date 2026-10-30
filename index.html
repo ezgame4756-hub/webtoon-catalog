@@ -693,8 +693,10 @@ const WEBTOON_PRESETS = {"신체": "https://image-comic.pstatic.net/webtoon/8440
 // ══════════════════════════════════════════════════════
 //  SUPABASE & AUTH CONFIGURATION
 // ══════════════════════════════════════════════════════
-let SUPABASE_URL = localStorage.getItem('wt_sp_url') || "";
-let SUPABASE_KEY = localStorage.getItem('wt_sp_key') || "";
+const DEFAULT_SUPABASE_URL = "https://fskxiilijyopxalwymqd.supabase.co";
+const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZza3hpaWxpanlvcHhhbHd5bXFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMjMxMTAsImV4cCI6MjEwODg5OTExMH0.P6AvMEcqoFWlcXYdndjrHBYRVYRM7uXlxIzxvp-P7-s";
+let SUPABASE_URL = localStorage.getItem('wt_sp_url') || DEFAULT_SUPABASE_URL;
+let SUPABASE_KEY = localStorage.getItem('wt_sp_key') || DEFAULT_SUPABASE_KEY;
 let spClient = null;
 let currentUser = null;
 let isSharedMode = false;
@@ -756,7 +758,10 @@ let authMode = 'login';
 
 function openAuthModal() {
   if (!spClient) {
-    toast("먼저 좌측 하단 '⚙️ Supabase 클라우드 설정'을 입력해주세요!");
+    initSupabase();
+  }
+  if (!spClient) {
+    toast("Supabase 서버 연결을 확인해주세요.");
     openConfigModal();
     return;
   }
