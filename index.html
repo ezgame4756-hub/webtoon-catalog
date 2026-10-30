@@ -695,14 +695,14 @@ const WEBTOON_PRESETS = {"신체": "https://image-comic.pstatic.net/webtoon/8440
 // ══════════════════════════════════════════════════════
 let SUPABASE_URL = localStorage.getItem('wt_sp_url') || "";
 let SUPABASE_KEY = localStorage.getItem('wt_sp_key') || "";
-let supabase = null;
+let spClient = null;
 let currentUser = null;
 let isSharedMode = false;
 
 function initSupabase() {
   if (SUPABASE_URL && SUPABASE_KEY && window.supabase) {
     try {
-      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+      spClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
       listenAuthState();
     } catch(e) {
       console.warn("Supabase init error:", e);
@@ -711,11 +711,11 @@ function initSupabase() {
 }
 
 async function listenAuthState() {
-  if (!supabase) return;
-  const { data: { session } } = await supabase.auth.getSession();
+  if (!spClient) return;
+  const { data: { session } } = await spClient.auth.getSession();
   updateUserUI(session ? session.user : null);
 
-  supabase.auth.onAuthStateChange((_event, session) => {
+  spClient.auth.onAuthStateChange((_event, session) => {
     updateUserUI(session ? session.user : null);
     if (session && session.user) {
       loadCloudData(session.user.id);
@@ -755,7 +755,7 @@ function updateUserUI(user) {
 let authMode = 'login';
 
 function openAuthModal() {
-  if (!supabase) {
+  if (!spClient) {
     toast("먼저 좌측 하단 '⚙️ Supabase 클라우드 설정'을 입력해주세요!");
     openConfigModal();
     return;
@@ -778,7 +778,7 @@ function switchAuthTab(mode) {
 }
 
 async function submitAuth() {
-  if (!supabase) return;
+  if (!spClient) return;
   const email = document.getElementById('authEmail').value.trim();
   const password = document.getElementById('authPassword').value.trim();
 
@@ -797,12 +797,12 @@ async function submitAuth() {
 
   try {
     if (authMode === 'signup') {
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      const { data, error } = await spClient.auth.signUp({ email, password });
       if (error) throw error;
       toast("🎉 회원가입 성공! 로그인되었습니다.");
       cl('authMdl');
     } else {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await spClient.auth.signInWithPassword({ email, password });
       if (error) throw error;
       toast("환영합니다! 클라우드 동기화가 활성화되었습니다.");
       cl('authMdl');
@@ -816,9 +816,9 @@ async function submitAuth() {
 }
 
 async function handleLogout() {
-  if (!supabase) return;
+  if (!spClient) return;
   if (!confirm("로그아웃 하시겠습니까?")) return;
-  await supabase.auth.signOut();
+  await spClient.auth.signOut();
   toast("로그아웃되었습니다.");
   hydrate();
   renderAll();
@@ -830,14 +830,14 @@ async function handleLogout() {
 let saveTimeout = null;
 
 async function syncToCloud() {
-  if (!supabase || !currentUser || isSharedMode) return;
+  if (!spClient || !currentUser || isSharedMode) return;
   const syncDot = document.getElementById('syncDot');
   syncDot.style.background = '#f59e0b';
 
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(async () => {
     try {
-      const { error } = await supabase
+      const { error } = await spClient
         .from('user_webtoons')
         .upsert({
           user_id: currentUser.id,
@@ -855,7 +855,7 @@ async function syncToCloud() {
 }
 
 async function loadCloudData(userId) {
-  if (!supabase) return;
+  if (!spClient) return;
   try {
     const { data, error } = await supabase
       .from('user_webtoons')
@@ -889,7 +889,7 @@ async function checkShareMode() {
   document.getElementById('mainAddBtn').style.display = 'none';
   document.getElementById('addCatBtnArea').style.display = 'none';
 
-  if (!supabase) {
+  if (!spClient) {
     document.getElementById('sharedBannerText').textContent = "공유 목록을 열람하려면 Supabase 서버 설정이 필요합니다.";
     return;
   }
