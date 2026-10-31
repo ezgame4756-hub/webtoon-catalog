@@ -931,8 +931,8 @@ const ADMIN_EMAIL = "ji620030@gmail.com";
 const DEFAULT_SUPABASE_URL = "https://fskxiilijyopxalwymqd.supabase.co";
 const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZza3hpaWxpanlvcHhhbHd5bXFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMjMxMTAsImV4cCI6MjEwODg5OTExMH0.P6AvMEcqoFWlcXYdndjrHBYRVYRM7uXlxIzxvp-P7-s";
 
-let SUPABASE_URL = localStorage.getItem('wt_sp_url') || DEFAULT_SUPABASE_URL;
-let SUPABASE_KEY = localStorage.getItem('wt_sp_key') || DEFAULT_SUPABASE_KEY;
+let SUPABASE_URL = DEFAULT_SUPABASE_URL;
+let SUPABASE_KEY = DEFAULT_SUPABASE_KEY;
 
 let spClient = null;
 let currentUser = null;
@@ -1143,22 +1143,18 @@ let db = getDefaultDb();
 let editId = null;
 
 function getStorageKey() {
-  return currentUser ? `wt_user_${currentUser.id}` : 'wt_guest_db';
+  return currentUser ? `wt_user_${currentUser.id}` : 'wt_guest';
 }
 
 function persist() {
   if (currentViewingUserId) return; // 공유 뷰어 모드에서는 저장 방지
-  try { localStorage.setItem(getStorageKey(), JSON.stringify(db)); } catch(e){}
+  // Cloud only - browser storage completely removed
   if (currentUser) {
     syncToCloud();
   }
 }
 
 function hydrateGuest() {
-  const saved = localStorage.getItem('wt_guest_db');
-  if (saved) {
-    try { db = JSON.parse(saved); return; } catch(e){}
-  }
   db = getDefaultDb();
 }
 
@@ -1225,17 +1221,12 @@ async function loadCloudData(userId) {
       db = data.data;
       myShareStatus = !!(data.is_shared !== undefined ? data.is_shared : data.data._is_shared);
       myShareTitle = data.share_title || data.data._share_title || "";
-      localStorage.setItem(getStorageKey(), JSON.stringify(db));
+      // In-memory data updated from cloud
       updateShareSwitchUI();
       renderAll();
       toast("클라우드에서 내 웹툰 목록을 불러왔습니다! ☁️");
     } else {
-      const local = localStorage.getItem(getStorageKey());
-      if (local) {
-        try { db = JSON.parse(local); } catch(e) { db = getDefaultDb(); }
-      } else {
-        db = getDefaultDb();
-      }
+      db = getDefaultDb();
       myShareStatus = false;
       myShareTitle = "";
       updateShareSwitchUI();
@@ -1542,16 +1533,16 @@ function toggleTheme() {
   if (html.classList.contains('dark')) {
     html.classList.remove('dark');
     btn.textContent = '☀️';
-    localStorage.setItem('wt_theme', 'light');
+    /* theme light */
   } else {
     html.classList.add('dark');
     btn.textContent = '🌙';
-    localStorage.setItem('wt_theme', 'dark');
+    /* theme dark */
   }
 }
 
 function initTheme() {
-  const saved = localStorage.getItem('wt_theme') || 'dark';
+  const saved = 'dark';
   const html = document.documentElement;
   const btn = document.getElementById('themeBtn');
   if (saved === 'dark') {
@@ -2109,8 +2100,8 @@ function saveConfig() {
   const key = document.getElementById('cfgKey').value.trim();
   SUPABASE_URL = url;
   SUPABASE_KEY = key;
-  localStorage.setItem('wt_sp_url', url);
-  localStorage.setItem('wt_sp_key', key);
+  
+  
   initSupabase();
   cl('configMdl');
   toast("Supabase 서버 설정이 저장되었습니다! 🚀");
