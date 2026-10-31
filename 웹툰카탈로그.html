@@ -652,7 +652,7 @@ input:focus, textarea:focus, select:focus {
     
     <select id="sortSel" onchange="render()" style="width:auto; padding:8px 12px; font-size:13px; font-weight:600;">
       <option value="custom">내 정렬 순서</option>
-      <option value="tier">🏆 티어순 (S→D)</option>
+      <option value="tier">🏆 티어순 (S→D + 내 우열순위)</option>
       <option value="title">🔤 제목순 (가나다)</option>
       <option value="rating">⭐ 별점 높은순</option>
       <option value="added">🕒 최근 추가순</option>
@@ -1836,7 +1836,13 @@ function render() {
 
   const tierWeight = { 'S': 5, 'A': 4, 'B': 3, 'C': 2, 'D': 1, '': 0 };
   if (sort === 'tier') {
-    list.sort((a,b) => (tierWeight[b.tier || ''] - tierWeight[a.tier || '']) || (b.addedAt - a.addedAt));
+    const originalOrder = new Map(db.webtoons.map((item, i) => [item.id, i]));
+    list.sort((a,b) => {
+      const diff = (tierWeight[b.tier || ''] || 0) - (tierWeight[a.tier || ''] || 0);
+      if (diff !== 0) return diff;
+      // ★ 핵심: 같은 티어 내에서는 사용자가 배치한 순서(우열 순위)를 100% 보존!
+      return (originalOrder.get(a.id) ?? 0) - (originalOrder.get(b.id) ?? 0);
+    });
   } else if (sort === 'title') {
     list.sort((a,b) => a.title.localeCompare(b.title, 'ko'));
   } else if (sort === 'rating') {
@@ -1880,8 +1886,15 @@ function createCard(w) {
       }
       ${!currentViewingUserId ? `
         <div class="card-ov">
-          <button class="btn sm" onclick="editWt('${w.id}', event)" style="background:#ffffff; color:#0f172a; font-weight:800;">✏️ 수정</button>
-          <button class="btn sm bd" onclick="delWt('${w.id}', event)">🗑️ 삭제</button>
+          <div style="display:flex; gap:4px; margin-bottom:2px; background:rgba(0,0,0,0.55); padding:3px 5px; border-radius:8px;">
+            <button class="btn sm" onclick="moveWebtoonRank('${w.id}', -1, event)" style="padding:4px 8px; font-size:11.5px; background:rgba(255,255,255,0.92); color:#0f172a; font-weight:800;" title="앞으로 이동">◀</button>
+            <button class="btn sm" onclick="moveWebtoonRank('${w.id}', 'top', event)" style="padding:4px 8px; font-size:11.5px; background:#f59e0b; color:#fff; font-weight:800;" title="해당 티어 맨 위로">🔝</button>
+            <button class="btn sm" onclick="moveWebtoonRank('${w.id}', 1, event)" style="padding:4px 8px; font-size:11.5px; background:rgba(255,255,255,0.92); color:#0f172a; font-weight:800;" title="뒤로 이동">▶</button>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button class="btn sm" onclick="editWt('${w.id}', event)" style="background:#ffffff; color:#0f172a; font-weight:800; font-size:12px; padding:4px 9px;">✏️ 수정</button>
+            <button class="btn sm bd" onclick="delWt('${w.id}', event)" style="font-size:12px; padding:4px 8px;">🗑️</button>
+          </div>
         </div>
       ` : ''}
     </div>
@@ -1915,6 +1928,15 @@ function createCard(w) {
         const toIdx = db.webtoons.findIndex(x => x.id === w.id);
         const [item] = db.webtoons.splice(fromIdx, 1);
         db.webtoons.splice(toIdx, 0, item);
+
+        const sortVal = document.getElementById('sortSel').value;
+        if (sortVal === 'tier' && item.tier !== w.tier) {
+          item.tier = w.tier;
+          toast(`'${item.title}'을(를) ${w.tier ? w.tier + '티어로 이동했습니다! 🎯' : '이동했습니다!'}`);
+        } else {
+          toast(`'${item.title}'의 순서가 변경되었습니다! ✨`);
+        }
+
         persist();
         render();
       }
@@ -2283,6 +2305,79 @@ function delWt(id, e) {
   toast(`'${w.title}' 삭제됨`);
 }
 
+
+function moveWebtoonRank(id, direction, e) {
+  if (e) e.stopPropagation();
+  if (currentViewingUserId) return;
+
+  const idx = db.webtoons.findIndex(w => w.id === id);
+  if (idx < 0) return;
+  const current = db.webtoons[idx];
+
+  const sort = document.getElementById('sortSel').value;
+  const q = document.getElementById('searchQ').value.toLowerCase().trim();
+
+  let visibleList = [...db.webtoons];
+  if (db.curCat !== 'all') visibleList = visibleList.filter(w => w.catId === db.curCat);
+  if (db.curTier) visibleList = visibleList.filter(w => w.tier === db.curTier);
+  if (db.curStatus) visibleList = visibleList.filter(w => w.status === db.curStatus);
+
+  if (q) {
+    visibleList = visibleList.filter(w => 
+      w.title.toLowerCase().includes(q) ||
+      (w.tags || []).some(t => t.toLowerCase().includes(q)) ||
+      (w.note || '').toLowerCase().includes(q)
+    );
+  }
+
+  const tierWeight = { 'S': 5, 'A': 4, 'B': 3, 'C': 2, 'D': 1, '': 0 };
+  const originalOrder = new Map(db.webtoons.map((item, i) => [item.id, i]));
+  if (sort === 'tier') {
+    visibleList.sort((a,b) => {
+      const diff = (tierWeight[b.tier || ''] || 0) - (tierWeight[a.tier || ''] || 0);
+      if (diff !== 0) return diff;
+      return (originalOrder.get(a.id) ?? 0) - (originalOrder.get(b.id) ?? 0);
+    });
+  }
+
+  const vIdx = visibleList.findIndex(w => w.id === id);
+  if (vIdx < 0) return;
+
+  if (direction === 'top') {
+    const sameTierFirst = visibleList.find(w => (w.tier || '') === (current.tier || ''));
+    if (sameTierFirst && sameTierFirst.id !== id) {
+      const targetIdx = db.webtoons.findIndex(w => w.id === sameTierFirst.id);
+      db.webtoons.splice(idx, 1);
+      db.webtoons.splice(targetIdx, 0, current);
+      toast(`'${current.title}'을(를) ${current.tier ? current.tier + '티어 ' : ''}맨 앞으로 올렸습니다! 🔝`);
+    } else {
+      toast(`이미 해당 티어의 가장 맨 앞에 있습니다! ✨`);
+    }
+  } else if (direction === -1) {
+    if (vIdx > 0) {
+      const target = visibleList[vIdx - 1];
+      const targetIdx = db.webtoons.findIndex(w => w.id === target.id);
+      db.webtoons.splice(idx, 1);
+      db.webtoons.splice(targetIdx, 0, current);
+      toast(`'${current.title}'을(를) 한 칸 앞으로 이동했습니다! ◀`);
+    }
+  } else if (direction === 1) {
+    if (vIdx < visibleList.length - 1) {
+      const target = visibleList[vIdx + 1];
+      const targetIdx = db.webtoons.findIndex(w => w.id === target.id);
+      db.webtoons.splice(idx, 1);
+      db.webtoons.splice(targetIdx, 0, current);
+      toast(`'${current.title}'을(를) 한 칸 뒤로 이동했습니다! ▶`);
+    }
+  }
+
+  persist();
+  render();
+  if (document.getElementById('detMdl').style.display !== 'none') {
+    showDetail(id);
+  }
+}
+
 function showDetail(id) {
   const w = db.webtoons.find(x => x.id === id);
   if (!w) return;
@@ -2325,9 +2420,17 @@ function showDetail(id) {
         📝 ${escapeHtml(w.note)}
       </div>
     ` : ''}
-    <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border-color); padding-top:16px;">
-      ${!currentViewingUserId ? `<button class="btn bd sm" onclick="delWt('${w.id}'); cl('detMdl');">🗑️ 삭제</button>` : '<div></div>'}
-      <div style="display:flex; gap:10px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border-color); padding-top:16px; flex-wrap:wrap; gap:10px;">
+      ${!currentViewingUserId ? `
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+          <span style="font-size:11px; font-weight:700; color:var(--text-muted); margin-right:2px;">순서 변경:</span>
+          <button class="btn bs sm" onclick="moveWebtoonRank('${w.id}', -1)" title="한 칸 앞으로 이동">◀ 앞으로</button>
+          <button class="btn bp sm" onclick="moveWebtoonRank('${w.id}', 'top')" style="background:#f59e0b;" title="해당 티어 맨 위로">🔝 맨 위로</button>
+          <button class="btn bs sm" onclick="moveWebtoonRank('${w.id}', 1)" title="한 칸 뒤로 이동">▶ 뒤로</button>
+        </div>
+      ` : '<div></div>'}
+      <div style="display:flex; gap:8px;">
+        ${!currentViewingUserId ? `<button class="btn bd sm" onclick="delWt('${w.id}'); cl('detMdl');">🗑️ 삭제</button>` : ''}
         ${!currentViewingUserId ? `<button class="btn bs sm" onclick="editWt('${w.id}'); cl('detMdl');">✏️ 수정</button>` : ''}
         <button class="btn bp sm" onclick="cl('detMdl');">닫기</button>
       </div>
