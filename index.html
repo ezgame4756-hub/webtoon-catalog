@@ -517,6 +517,8 @@ input:focus, textarea:focus, select:focus {
   transition: background 0.15s;
 }
 .candidate-item:hover { background: var(--bg-hover); }
+#catSwitcherBtn { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+#catSwitcherBtn:hover, #catSwitcherBtn:active { background: var(--bg-hover) !important; }
 </style>
 </head>
 <body>
@@ -623,9 +625,14 @@ input:focus, textarea:focus, select:focus {
   <div class="main-toolbar" style="padding:14px 24px; border-bottom:1px solid var(--border-color); display:flex; align-items:center; gap:12px; background:var(--bg-card); position:sticky; top:0; z-index:20; flex-shrink:0;">
     <button class="btn bg_ sm md:hidden" onclick="toggleSidebar(true)" style="padding:6px 10px; font-size:20px;">☰</button>
     
-    <div style="min-width:0; flex-shrink:1;">
-      <div id="hTitle" style="font-size:18px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; letter-spacing:-0.02em;">전체 웹툰</div>
-      <div id="hSub" style="font-size:12px; color:var(--text-muted); display:none;"></div>
+    <div id="catSwitcherBtn" onclick="openFolderSwitcher(event)" style="cursor:pointer; display:flex; align-items:center; gap:6px; min-width:0; flex-shrink:1; padding:4px 8px; border-radius:10px; border:1px solid transparent; transition:all 0.15s;" title="클릭하여 다른 폴더로 전환">
+      <div style="min-width:0;">
+        <div style="display:flex; align-items:center; gap:6px;">
+          <div id="hTitle" style="font-size:18px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; letter-spacing:-0.02em;">전체 웹툰</div>
+          <span style="font-size:11px; opacity:0.6; flex-shrink:0; transform:translateY(1px);">▼</span>
+        </div>
+        <div id="hSub" style="font-size:12px; color:var(--text-muted); display:none;"></div>
+      </div>
     </div>
 
     <div style="flex:1;"></div>
@@ -691,6 +698,26 @@ input:focus, textarea:focus, select:focus {
   <!-- Lists Container -->
   <div id="publicListsContainer" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px; min-height:160px; padding-right:4px;">
     <div style="padding:20px; text-align:center; color:var(--text-muted); font-size:13px;">불러오는 중...</div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════ FOLDER / CATALOG SWITCHER MODAL ══════════════ -->
+<div id="folderSwitcherMdl" class="ov" style="display:none;" onclick="oc(event,'folderSwitcherMdl')">
+<div class="mdl" onclick="event.stopPropagation()" style="width:min(360px, 92vw); max-height:80vh; display:flex; flex-direction:column;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+    <h3 style="margin:0; font-size:16px; font-weight:800; display:flex; align-items:center; gap:6px;">
+      <span>📁</span> 폴더(카탈로그) 전환
+    </h3>
+    <button class="btn bg_ sm" onclick="cl('folderSwitcherMdl')" style="font-size:18px; padding:4px 8px;">✕</button>
+  </div>
+  
+  <div id="folderSwitcherList" style="display:flex; flex-direction:column; gap:6px; overflow-y:auto; flex:1; max-height:50vh; padding-right:2px;"></div>
+
+  <div id="folderSwitcherAddArea" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border-color);">
+    <button class="btn bs sm" onclick="cl('folderSwitcherMdl'); openCatModal();" style="width:100%; justify-content:center; font-weight:700;">
+      ＋ 새 폴더 만들기
+    </button>
   </div>
 </div>
 </div>
@@ -940,7 +967,8 @@ let currentViewingUserId = null; // null: 내 리스트 / string: 타인 공유 
 let myShareStatus = false;
 let myShareTitle = "";
 let publicLists = [];
-let COMMUNITY_PRESETS = {}; // Crowdsourced webtoon thumbnails
+let COMMUNITY_PRESETS = {}; // Crowdsourced webtoon thumbnails (최신순 대표)
+let COMMUNITY_PRESETS_LIST = []; // 모든 유저가 등록한 이미지 풀 (중복/다양한 버전 포함)
 
 function isAdmin() {
   return currentUser && currentUser.email && currentUser.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
@@ -970,13 +998,22 @@ async function listenAuthState() {
 async function handleUserChange(user) {
   currentUser = user;
   updateUserUI(user);
+
+  // 타인의 공유 리스트를 둘러보는 중(뷰어 모드)에는 탭 전환이나 토큰 갱신 시 내 리스트로 덮어쓰지 않음
+  if (currentViewingUserId) {
+    loadPublicLists();
+    loadCommunityThumbnails();
+    return;
+  }
+
   if (user) {
     await loadCloudData(user.id);
   } else {
     hydrateGuest();
     renderAll();
   }
-  loadPublicLists(); loadCommunityThumbnails();
+  loadPublicLists();
+  loadCommunityThumbnails();
 }
 
 function updateUserUI(user) {
@@ -1196,6 +1233,8 @@ async function syncToCloudNow() {
 
 async function loadCloudData(userId) {
   if (!spClient) return;
+  // 타인 공유 리스트 뷰어 모드일 때는 내 카탈로그 데이터로 덮어쓰기 방지
+  if (currentViewingUserId && currentViewingUserId !== userId) return;
   const syncDot = document.getElementById('syncDot');
   if (syncDot) syncDot.style.background = '#f59e0b';
   try {
@@ -1257,30 +1296,48 @@ async function handleShareToggle(checked) {
 async function loadCommunityThumbnails() {
   if (!spClient) return;
   try {
-    // Supabase의 모든 user_webtoons 테이블에서 다른 사용자들이 직접 추가한 썸네일 수집 (집단지성 풀)
+    // Supabase에서 모든 유저의 웹툰 목록을 읽어옵니다.
     const { data, error } = await spClient
       .from('user_webtoons')
-      .select('data, user_email, user_name');
+      .select('data, user_email, user_name, updated_at');
 
     if (!error && data) {
+      COMMUNITY_PRESETS = {};
+      COMMUNITY_PRESETS_LIST = [];
       data.forEach(row => {
         const list = row.data?.webtoons || [];
         const author = row.user_name || (row.user_email ? maskEmail(row.user_email) : '다른 사용자');
         list.forEach(w => {
           if (w.title && w.imageUrl) {
             const key = w.title.toLowerCase().replace(/\s+/g, '');
-            if (!COMMUNITY_PRESETS[key]) {
+            const itemTime = w.addedAt ? Number(w.addedAt) : (row.updated_at ? new Date(row.updated_at).getTime() : 9999999999999);
+
+            // ★ 최초 등록자 원칙: 가장 먼저 등록한 사용자의 이미지와 수고를 인정하여 1순위 대표로 고정!
+            if (!COMMUNITY_PRESETS[key] || itemTime < COMMUNITY_PRESETS[key].contributedAt) {
               COMMUNITY_PRESETS[key] = {
                 title: w.title.trim(),
                 imgUrl: w.imageUrl.trim(),
                 isCommunity: true,
-                author: author
+                author: author,
+                contributedAt: itemTime,
+                isFirst: true
               };
             }
+
+            COMMUNITY_PRESETS_LIST.push({
+              key: key,
+              title: w.title.trim(),
+              imgUrl: w.imageUrl.trim(),
+              author: author,
+              contributedAt: itemTime
+            });
           }
         });
       });
-      console.log(`[집단지성 썸네일] 다른 사용자가 등록한 썸네일 총 ${Object.keys(COMMUNITY_PRESETS).length}편 연동 완료!`);
+
+      // 등록 시간 오름차순(최초 등록자가 최상단)으로 후보 목록 정렬
+      COMMUNITY_PRESETS_LIST.sort((a, b) => a.contributedAt - b.contributedAt);
+      console.log(`[집단지성 썸네일] 최초 등록자 우선 정렬 완료: 고유 ${Object.keys(COMMUNITY_PRESETS).length}편, 총 이미지 후보 ${COMMUNITY_PRESETS_LIST.length}개`);
     }
   } catch (err) {
     console.warn("Community thumbnails load error:", err);
@@ -1575,6 +1632,55 @@ async function submitAdminTitle() {
 // ══════════════════════════════════════════════════════
 //  THEME TOGGLE
 // ══════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════
+//  FOLDER / CATALOG SWITCHER (MOBILE & DESKTOP)
+// ══════════════════════════════════════════════════════
+function openFolderSwitcher(e) {
+  if (e) e.stopPropagation();
+  const listEl = document.getElementById('folderSwitcherList');
+  if (!listEl) return;
+  listEl.innerHTML = '';
+
+  db.catalogs.forEach(cat => {
+    const isActive = db.curCat === cat.id && !db.curTier && !db.curStatus;
+    const cnt = cat.id === 'all' ? db.webtoons.length : db.webtoons.filter(w => w.catId === cat.id).length;
+
+    const item = document.createElement('div');
+    item.className = 'nav-item' + (isActive ? ' active' : '');
+    item.style.padding = '10px 14px';
+    item.style.fontSize = '14.5px';
+    item.style.cursor = 'pointer';
+    item.style.borderRadius = '10px';
+    item.style.display = 'flex';
+    item.style.alignItems = 'center';
+    item.style.gap = '8px';
+    item.innerHTML = `
+      <span style="font-size:18px;">${cat.emoji}</span>
+      <span style="flex:1; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(cat.name)}</span>
+      <span class="cnt" style="font-size:12px; font-weight:700; background:var(--bg-hover); padding:2px 8px; border-radius:12px;">${cnt}편</span>
+      ${isActive ? '<span style="color:var(--primary-color); font-weight:800; font-size:14px; margin-left:4px;">✓</span>' : ''}
+    `;
+
+    item.onclick = () => {
+      db.curCat = cat.id;
+      db.curTier = null;
+      db.curStatus = null;
+      cl('folderSwitcherMdl');
+      renderAll();
+    };
+
+    listEl.appendChild(item);
+  });
+
+  const addArea = document.getElementById('folderSwitcherAddArea');
+  if (addArea) {
+    addArea.style.display = currentViewingUserId ? 'none' : 'block';
+  }
+
+  document.getElementById('folderSwitcherMdl').style.display = 'flex';
+}
+
 function toggleTheme() {
   const html = document.documentElement;
   const btn = document.getElementById('themeBtn');
@@ -1828,8 +1934,8 @@ function onTitleChange() {
   if (matchedImg) {
     setImageUrl(matchedImg);
     if (isFromCommunity) {
-      const author = COMMUNITY_PRESETS[clean]?.author ? ` (${COMMUNITY_PRESETS[clean].author} 님이 등록)` : '';
-      document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 다른 사용자가 등록한 이미지가 자동 연결되었습니다!${author} 💡</span>`;
+      const author = COMMUNITY_PRESETS[clean]?.author ? ` (${COMMUNITY_PRESETS[clean].author} 님)` : '';
+      document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 최초 등록자${author}의 이미지가 자동 연결되었습니다! 👑 💡</span>`;
     } else {
       document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#10b981; font-weight:800;">✓ 공식 웹툰 커버 이미지가 자동 연결되었습니다!</span>`;
     }
@@ -1850,11 +1956,19 @@ function onTitleChange() {
     }
   }
 
-  // Community Presets Candidates (집단지성 유저 공유 풀)
-  for (const [key, item] of Object.entries(COMMUNITY_PRESETS)) {
-    if (key.includes(clean) && !seenTitles.has(key)) {
-      candidates.push({ title: item.title, imgUrl: item.imgUrl, source: '유저공유', author: item.author });
-      seenTitles.add(key);
+  // Community Presets Candidates (최초 등록자 👑 우선 노출)
+  const seenImgUrls = new Set();
+  for (const item of (COMMUNITY_PRESETS_LIST.length ? COMMUNITY_PRESETS_LIST : Object.values(COMMUNITY_PRESETS).map(x => ({ ...x, key: x.title.toLowerCase().replace(/\s+/g, '') })))) {
+    if (item.key.includes(clean) && !seenImgUrls.has(item.imgUrl)) {
+      const isFirst = COMMUNITY_PRESETS[item.key] && COMMUNITY_PRESETS[item.key].imgUrl === item.imgUrl;
+      candidates.push({
+        title: item.title,
+        imgUrl: item.imgUrl,
+        source: '유저공유',
+        author: item.author,
+        isFirst: isFirst
+      });
+      seenImgUrls.add(item.imgUrl);
       if (candidates.length >= 8) break;
     }
   }
@@ -1865,7 +1979,7 @@ function onTitleChange() {
         <img src="${c.imgUrl}" referrerpolicy="no-referrer" style="width:32px; height:44px; object-fit:cover; border-radius:6px; flex-shrink:0;" />
         <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
           <span style="font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(c.title)}</span>
-          <span style="font-size:10px; color:${c.source === '유저공유' ? '#6366f1' : 'var(--text-muted)'}; font-weight:600;">${c.source === '유저공유' ? `💡 유저 등록${c.author ? ' (' + escapeHtml(c.author) + ')' : ''}` : '공식 프리셋'}</span>
+          <span style="font-size:10px; color:${c.source === '유저공유' ? (c.isFirst ? '#f59e0b' : '#6366f1') : 'var(--text-muted)'}; font-weight:700;">${c.source === '유저공유' ? (c.isFirst ? `👑 최초 등록자 (${escapeHtml(c.author || '')})` : `💡 유저 등록 (${escapeHtml(c.author || '')})`) : '공식 프리셋'}</span>
         </div>
         <span style="font-size:12px; font-weight:700; color:var(--primary-color); flex-shrink:0;">선택</span>
       </div>
@@ -2171,7 +2285,7 @@ function toast(msg) {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') ['addMdl','catMdl','detMdl','authMdl','configMdl','adminTitleMdl','publicListsMdl'].forEach(cl);
+  if (e.key === 'Escape') ['addMdl','catMdl','detMdl','authMdl','configMdl','adminTitleMdl','publicListsMdl','folderSwitcherMdl'].forEach(cl);
   if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); openAddModal(); }
 });
 
