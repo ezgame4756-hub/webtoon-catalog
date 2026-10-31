@@ -722,6 +722,30 @@ input:focus, textarea:focus, select:focus {
 </div>
 </div>
 
+<!-- ══════════════ MULTI-IMAGE PICKER MODAL ══════════════ -->
+<div id="multiImgMdl" class="ov" style="display:none;" onclick="oc(event,'multiImgMdl')">
+<div class="mdl" onclick="event.stopPropagation()" style="width:min(440px, 94vw); max-height:85vh; display:flex; flex-direction:column;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <div>
+      <h3 id="multiImgModalTitle" style="margin:0; font-size:16px; font-weight:800;">🖼️ 등록 이미지 선택</h3>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">다른 사용자들이 등록한 이미지 중 마음에 드는 표지를 선택하세요.</div>
+    </div>
+    <button class="btn bg_ sm" onclick="cl('multiImgMdl')" style="font-size:18px; padding:4px 8px;">✕</button>
+  </div>
+  
+  <div id="multiImgGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(110px, 1fr)); gap:12px; overflow-y:auto; flex:1; max-height:55vh; padding:6px 2px;"></div>
+
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding-top:12px; border-top:1px solid var(--border-color); font-size:12px;">
+    <button class="btn bg_ sm" onclick="cl('multiImgMdl'); openExtSearch();" style="color:var(--primary-color); font-weight:700;">
+      🔍 웹에서 직접 찾기
+    </button>
+    <button class="btn bs sm" onclick="cl('multiImgMdl'); document.getElementById('f_imgUrl').focus();">
+      직접 URL 입력하기
+    </button>
+  </div>
+</div>
+</div>
+
 <!-- ══════════════ AUTH MODAL (LOGIN / SIGN UP) ══════════════ -->
 <div id="authMdl" class="ov" style="display:none;" onclick="oc(event,'authMdl')">
 <div class="mdl" onclick="event.stopPropagation()" style="width:min(400px,100%);">
@@ -843,7 +867,10 @@ input:focus, textarea:focus, select:focus {
     <div>
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
         <label class="lbl" style="margin:0;">커버 이미지 URL (자동 매칭)</label>
-        <button type="button" class="btn bg_ xs" onclick="openExtSearch()" style="color:var(--primary-color); font-weight:700;">🔍 웹에서 찾기</button>
+        <div style="display:flex; gap:6px;">
+          <button id="multiImgBtn" type="button" class="btn bg_ xs" onclick="openMultiImgModal()" style="display:none; color:#6366f1; font-weight:800; border:1px solid rgba(99,102,241,0.3); background:rgba(99,102,241,0.08); padding:3px 8px;">🖼️ 다른 이미지 선택 (<span id="multiImgCount">0</span>)</button>
+          <button type="button" class="btn bg_ xs" onclick="openExtSearch()" style="color:var(--primary-color); font-weight:700;">🔍 웹에서 찾기</button>
+        </div>
       </div>
       <input id="f_imgUrl" type="url" placeholder="제목 입력 시 공식 썸네일이 자동 입력됩니다" oninput="onImgUrlChange()" />
       <div id="imgStatusMsg" style="font-size:11px; color:var(--text-muted); margin-top:4px;"></div>
@@ -1902,12 +1929,129 @@ function onCardImgError(img, title) {
 }
 
 // ══════════════════════════════════════════════════════
-//  INSTANT AUTO IMAGE MATCHING
+//  INSTANT AUTO IMAGE MATCHING & MULTI-IMAGE PICKER
 // ══════════════════════════════════════════════════════
+function getAvailableImagesForTitle(title) {
+  if (!title) return [];
+  const cleanKey = title.toLowerCase().replace(/\s+/g, '');
+  const images = [];
+  const seenUrls = new Set();
+
+  // 1. 공식 프리셋 이미지
+  for (const [pTitle, pUrl] of Object.entries(WEBTOON_PRESETS)) {
+    if (pTitle.toLowerCase().replace(/\s+/g, '') === cleanKey) {
+      images.push({
+        imgUrl: pUrl,
+        author: '공식 네이버 웹툰',
+        isFirst: false,
+        isOfficial: true,
+        title: pTitle
+      });
+      seenUrls.add(pUrl);
+      break;
+    }
+  }
+
+  // 2. 최초 등록자 이미지 (1순위)
+  if (COMMUNITY_PRESETS[cleanKey] && !seenUrls.has(COMMUNITY_PRESETS[cleanKey].imgUrl)) {
+    const item = COMMUNITY_PRESETS[cleanKey];
+    images.push({
+      imgUrl: item.imgUrl,
+      author: item.author,
+      isFirst: true,
+      title: item.title
+    });
+    seenUrls.add(item.imgUrl);
+  }
+
+  // 3. 다른 사용자들이 등록한 추가 이미지들
+  COMMUNITY_PRESETS_LIST.forEach(item => {
+    if (item.key === cleanKey && !seenUrls.has(item.imgUrl)) {
+      images.push({
+        imgUrl: item.imgUrl,
+        author: item.author,
+        isFirst: false,
+        title: item.title
+      });
+      seenUrls.add(item.imgUrl);
+    }
+  });
+
+  return images;
+}
+
+function updateMultiImgButton(title) {
+  const btn = document.getElementById('multiImgBtn');
+  const countSpan = document.getElementById('multiImgCount');
+  if (!btn) return;
+  if (!title) {
+    btn.style.display = 'none';
+    return;
+  }
+  const images = getAvailableImagesForTitle(title);
+  if (images.length > 1) {
+    btn.style.display = 'inline-flex';
+    if (countSpan) countSpan.textContent = images.length;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function openMultiImgModal() {
+  const title = document.getElementById('f_title').value.trim();
+  if (!title) return;
+  const images = getAvailableImagesForTitle(title);
+  if (!images.length) return;
+
+  document.getElementById('multiImgModalTitle').textContent = `🖼️ '${title}' 등록 이미지 (${images.length}개)`;
+  const grid = document.getElementById('multiImgGrid');
+  grid.innerHTML = '';
+
+  const currentUrl = document.getElementById('f_imgUrl').value.trim();
+
+  images.forEach(item => {
+    const isSelected = currentUrl === item.imgUrl;
+    const card = document.createElement('div');
+    card.style.cssText = `
+      display: flex; flex-direction: column; border-radius: 10px; overflow: hidden;
+      border: 2px solid ${isSelected ? 'var(--primary-color)' : 'var(--border-color)'};
+      background: var(--bg-card); cursor: pointer; transition: all 0.15s; position: relative;
+    `;
+    card.onmouseenter = () => card.style.borderColor = 'var(--primary-color)';
+    card.onmouseleave = () => card.style.borderColor = isSelected ? 'var(--primary-color)' : 'var(--border-color)';
+
+    card.innerHTML = `
+      <div style="width:100%; height:130px; background:var(--bg-hover); position:relative; overflow:hidden;">
+        <img src="${item.imgUrl}" referrerpolicy="no-referrer" style="width:100%; height:100%; object-fit:cover;" onerror="this.src=''; this.alt='로드 실패';" />
+        ${item.isFirst ? '<span style="position:absolute; top:4px; left:4px; font-size:10px; background:rgba(0,0,0,0.75); color:#f59e0b; padding:2px 5px; border-radius:4px; font-weight:800;">👑 최초</span>' : '<span style="position:absolute; top:4px; left:4px; font-size:10px; background:rgba(0,0,0,0.75); color:#6366f1; padding:2px 5px; border-radius:4px; font-weight:700;">💡 유저</span>'}
+        ${isSelected ? '<span style="position:absolute; top:4px; right:4px; font-size:12px; background:var(--primary-color); color:#fff; width:20px; height:20px; display:flex; align-items:center; justify-content:center; border-radius:50%; font-weight:800;">✓</span>' : ''}
+      </div>
+      <div style="padding:6px 8px; font-size:11px; display:flex; flex-direction:column; gap:2px;">
+        <span style="font-weight:700; color:${item.isFirst ? '#f59e0b' : 'var(--text-main)'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.author || '유저')}</span>
+        <button class="btn bp xs" style="font-size:11px; padding:3px 6px; margin-top:4px; width:100%; justify-content:center;">${isSelected ? '현재 사용중' : '이 표지 사용'}</button>
+      </div>
+    `;
+
+    card.onclick = () => {
+      setImageUrl(item.imgUrl);
+      cl('multiImgMdl');
+      const authorText = item.author ? ` (${item.author} 님 등록)` : '';
+      document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ ${item.isFirst ? '👑 최초 등록자' : '💡 다른 유저'}${authorText}의 표지가 선택되었습니다!</span>`;
+      updateMultiImgButton(title);
+    };
+
+    grid.appendChild(card);
+  });
+
+  document.getElementById('multiImgMdl').style.display = 'flex';
+}
+
 function onTitleChange() {
   const raw = document.getElementById('f_title').value.trim();
   const clean = raw.toLowerCase().replace(/\s+/g, '');
   const suggestBox = document.getElementById('titleSuggestBox');
+
+  updateMultiImgButton(raw);
 
   if (!clean) {
     suggestBox.style.display = 'none';
@@ -1925,7 +2069,7 @@ function onTitleChange() {
     }
   }
 
-  // 2. Check Community Presets (Exact Match)
+  // 2. Check Community Presets (Exact Match - 최초 등록자 1순위)
   if (!matchedImg && COMMUNITY_PRESETS[clean]) {
     matchedImg = COMMUNITY_PRESETS[clean].imgUrl;
     isFromCommunity = true;
@@ -1940,46 +2084,46 @@ function onTitleChange() {
       document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#10b981; font-weight:800;">✓ 공식 웹툰 커버 이미지가 자동 연결되었습니다!</span>`;
     }
     suggestBox.style.display = 'none';
+    updateMultiImgButton(raw);
     return;
   }
 
-  // 3. Search Partial Matches (Candidates)
+  // 3. Search Partial Matches (Candidates) - ★ 제목당 오직 1개만 노출!
   const candidates = [];
   const seenTitles = new Set();
 
   // Official Presets Candidates
   for (const [title, imgUrl] of Object.entries(WEBTOON_PRESETS)) {
-    if (title.toLowerCase().replace(/\s+/g, '').includes(clean)) {
+    const key = title.toLowerCase().replace(/\s+/g, '');
+    if (key.includes(clean) && !seenTitles.has(key)) {
       candidates.push({ title, imgUrl, source: '공식' });
-      seenTitles.add(title.toLowerCase().replace(/\s+/g, ''));
+      seenTitles.add(key);
       if (candidates.length >= 5) break;
     }
   }
 
-  // Community Presets Candidates (최초 등록자 👑 우선 노출)
-  const seenImgUrls = new Set();
-  for (const item of (COMMUNITY_PRESETS_LIST.length ? COMMUNITY_PRESETS_LIST : Object.values(COMMUNITY_PRESETS).map(x => ({ ...x, key: x.title.toLowerCase().replace(/\s+/g, '') })))) {
-    if (item.key.includes(clean) && !seenImgUrls.has(item.imgUrl)) {
-      const isFirst = COMMUNITY_PRESETS[item.key] && COMMUNITY_PRESETS[item.key].imgUrl === item.imgUrl;
+  // Community Presets Candidates - ★ 최초 등록자(COMMUNITY_PRESETS)에서 제목당 1개만 대표로 노출!
+  for (const [key, item] of Object.entries(COMMUNITY_PRESETS)) {
+    if (key.includes(clean) && !seenTitles.has(key)) {
       candidates.push({
         title: item.title,
         imgUrl: item.imgUrl,
         source: '유저공유',
         author: item.author,
-        isFirst: isFirst
+        isFirst: true
       });
-      seenImgUrls.add(item.imgUrl);
+      seenTitles.add(key);
       if (candidates.length >= 8) break;
     }
   }
 
   if (candidates.length > 0) {
     suggestBox.innerHTML = candidates.map(c => `
-      <div class="candidate-item" onclick="selectPreset('${escapeHtml(c.title)}', '${c.imgUrl}')">
+      <div class="candidate-item" onclick="selectPreset('${escapeHtml(c.title)}', '${c.imgUrl}', ${c.source === '유저공유'}, '${escapeHtml(c.author || '')}')">
         <img src="${c.imgUrl}" referrerpolicy="no-referrer" style="width:32px; height:44px; object-fit:cover; border-radius:6px; flex-shrink:0;" />
         <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
           <span style="font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(c.title)}</span>
-          <span style="font-size:10px; color:${c.source === '유저공유' ? (c.isFirst ? '#f59e0b' : '#6366f1') : 'var(--text-muted)'}; font-weight:700;">${c.source === '유저공유' ? (c.isFirst ? `👑 최초 등록자 (${escapeHtml(c.author || '')})` : `💡 유저 등록 (${escapeHtml(c.author || '')})`) : '공식 프리셋'}</span>
+          <span style="font-size:10px; color:${c.source === '유저공유' ? '#f59e0b' : 'var(--text-muted)'}; font-weight:700;">${c.source === '유저공유' ? `👑 최초 등록자 (${escapeHtml(c.author || '')})` : '공식 프리셋'}</span>
         </div>
         <span style="font-size:12px; font-weight:700; color:var(--primary-color); flex-shrink:0;">선택</span>
       </div>
@@ -1991,11 +2135,17 @@ function onTitleChange() {
   }
 }
 
-function selectPreset(title, imgUrl) {
+function selectPreset(title, imgUrl, isCommunity, author) {
   document.getElementById('f_title').value = title;
   setImageUrl(imgUrl);
   document.getElementById('titleSuggestBox').style.display = 'none';
-  document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#10b981; font-weight:800;">✓ '${title}' 공식 이미지가 적용되었습니다!</span>`;
+  if (isCommunity) {
+    const authorText = author ? ` (${author} 님)` : '';
+    document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 최초 등록자${authorText}의 이미지가 적용되었습니다! 👑 💡</span>`;
+  } else {
+    document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#10b981; font-weight:800;">✓ '${title}' 공식 이미지가 적용되었습니다!</span>`;
+  }
+  updateMultiImgButton(title);
 }
 
 function setImageUrl(url) {
@@ -2036,6 +2186,7 @@ function openExtSearch() {
 function openAddModal() {
   if (currentViewingUserId) return;
   loadCommunityThumbnails(); // 최신 유저 등록 이미지 풀 갱신
+  updateMultiImgButton('');
   editId = null;
   document.getElementById('addTitle').textContent = '새 웹툰 추가';
   document.getElementById('saveLabel').textContent = '추가';
@@ -2059,6 +2210,7 @@ function editWt(id, e) {
   document.getElementById('addTitle').textContent = '웹툰 정보 수정';
   document.getElementById('saveLabel').textContent = '저장';
   document.getElementById('f_title').value = w.title;
+  updateMultiImgButton(w.title);
   document.getElementById('f_tier').value = w.tier || '';
   document.getElementById('f_status').value = w.status || 'reading';
   document.getElementById('f_rating').value = w.rating || 0;
@@ -2285,7 +2437,7 @@ function toast(msg) {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') ['addMdl','catMdl','detMdl','authMdl','configMdl','adminTitleMdl','publicListsMdl','folderSwitcherMdl'].forEach(cl);
+  if (e.key === 'Escape') ['addMdl','catMdl','detMdl','authMdl','configMdl','adminTitleMdl','publicListsMdl','folderSwitcherMdl','multiImgMdl'].forEach(cl);
   if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); openAddModal(); }
 });
 
