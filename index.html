@@ -1177,30 +1177,20 @@ async function syncToCloudNow() {
     const payload = {
       user_id: currentUser.id,
       user_email: currentUser.email,
-      data: db,
-      is_shared: myShareStatus,
-      share_title: myShareTitle || null,
+      user_name: currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || '',
+      data: {
+        ...db,
+        _is_shared: myShareStatus,
+        _share_title: myShareTitle || ''
+      },
       updated_at: new Date().toISOString()
     };
     const { error } = await spClient.from('user_webtoons').upsert(payload);
     if (error) throw error;
     if (syncDot) syncDot.style.background = '#10b981';
   } catch (err) {
-    console.warn("Cloud upsert with share columns failed, trying fallback:", err);
-    try {
-      // Fallback: table without is_shared/share_title columns
-      const fallbackPayload = {
-        user_id: currentUser.id,
-        user_email: currentUser.email,
-        data: { ...db, _is_shared: myShareStatus, _share_title: myShareTitle },
-        updated_at: new Date().toISOString()
-      };
-      await spClient.from('user_webtoons').upsert(fallbackPayload);
-      if (syncDot) syncDot.style.background = '#10b981';
-    } catch (e2) {
-      console.error("Cloud sync fatal error:", e2);
-      if (syncDot) syncDot.style.background = '#ef4444';
-    }
+    console.error("Cloud sync fatal error:", err);
+    if (syncDot) syncDot.style.background = '#ef4444';
   }
 }
 
@@ -1211,21 +1201,27 @@ async function loadCloudData(userId) {
   try {
     const { data, error } = await spClient
       .from('user_webtoons')
-      .select('data, is_shared, share_title')
+      .select('*')
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (error) console.warn("Cloud load query warning:", error);
+    if (error) {
+      console.error("Cloud load query error:", error);
+      if (syncDot) syncDot.style.background = '#ef4444';
+      toast("클라우드 데이터를 불러오지 못했습니다. 네트워크 상태를 확인해주세요. ⚠️");
+      return;
+    }
 
     if (data && data.data && data.data.catalogs) {
+      // 기존 저장된 웹툰 목록 성공적으로 로드
       db = data.data;
       myShareStatus = !!(data.is_shared !== undefined ? data.is_shared : data.data._is_shared);
       myShareTitle = data.share_title || data.data._share_title || "";
-      // In-memory data updated from cloud
       updateShareSwitchUI();
       renderAll();
       toast("클라우드에서 내 웹툰 목록을 불러왔습니다! ☁️");
-    } else {
+    } else if (!data) {
+      // 데이터베이스에 행이 전혀 없는 신규 계정일 때만 최초 1회 생성
       db = getDefaultDb();
       myShareStatus = false;
       myShareTitle = "";
@@ -1306,7 +1302,7 @@ async function loadPublicLists(showToast) {
   try {
     const { data, error } = await spClient
       .from('user_webtoons')
-      .select('user_id, user_email, share_title, data, updated_at, is_shared')
+      .select('*')
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
@@ -1483,7 +1479,7 @@ function openAdminTitleModal(userId, currentTitle, userEmail, e) {
   adminTargetUserId = userId;
   document.getElementById('admTargetEmail').value = userEmail || '사용자';
   document.getElementById('admTargetTitle').value = currentTitle || '';
-  document.getElementById('adminTitleMdl','publicListsMdl').style.display = 'flex';
+  document.getElementById('adminTitleMdl').style.display = 'flex';
   setTimeout(() => document.getElementById('admTargetTitle').focus(), 100);
 }
 
@@ -1504,15 +1500,32 @@ async function submitAdminTitle() {
   }
 
   try {
-    const { error } = await spClient
+    // 1차: share_title 컬럼 업데이트 시도
+    let res = await spClient
       .from('user_webtoons')
       .update({ share_title: newTitle, updated_at: new Date().toISOString() })
       .eq('user_id', adminTargetUserId);
 
-    if (error) throw error;
+    if (res.error) {
+      // fallback: data jsonb의 _share_title 업데이트
+      const { data: targetRow } = await spClient
+        .from('user_webtoons')
+        .select('data')
+        .eq('user_id', adminTargetUserId)
+        .maybeSingle();
+
+      if (targetRow && targetRow.data) {
+        const updatedData = { ...targetRow.data, _share_title: newTitle };
+        const { error: err2 } = await spClient
+          .from('user_webtoons')
+          .update({ data: updatedData, updated_at: new Date().toISOString() })
+          .eq('user_id', adminTargetUserId);
+        if (err2) throw err2;
+      }
+    }
 
     toast(`리스트 이름이 '${newTitle}' (으)로 변경되었습니다! 👑`);
-    cl('adminTitleMdl','publicListsMdl');
+    cl('adminTitleMdl');
     await loadPublicLists(); loadCommunityThumbnails();
 
     if (currentViewingUserId === adminTargetUserId) {
@@ -2107,7 +2120,7 @@ function saveConfig() {
   toast("Supabase 서버 설정이 저장되었습니다! 🚀");
 }
 
-function cl(id) { document.getElementById(id).style.display = 'none'; }
+function cl(...ids) { ids.forEach(id => { const el = document.getElementById(id); if(el) el.style.display = 'none'; }); }
 function oc(e, id) { if(e.target === document.getElementById(id)) cl(id); }
 function escapeHtml(s) { return (s||'').replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
