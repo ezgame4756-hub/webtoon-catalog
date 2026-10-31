@@ -1257,44 +1257,45 @@ async function handleShareToggle(checked) {
 async function loadCommunityThumbnails() {
   if (!spClient) return;
   try {
+    // Supabase의 모든 user_webtoons 테이블에서 다른 사용자들이 직접 추가한 썸네일 수집 (집단지성 풀)
     const { data, error } = await spClient
-      .from('community_thumbnails')
-      .select('title, image_url, title_key');
+      .from('user_webtoons')
+      .select('data, user_email, user_name');
 
     if (!error && data) {
-      data.forEach(item => {
-        const key = item.title_key || item.title.toLowerCase().replace(/\s+/g, '');
-        COMMUNITY_PRESETS[key] = {
-          title: item.title,
-          imgUrl: item.image_url,
-          isCommunity: true
-        };
+      data.forEach(row => {
+        const list = row.data?.webtoons || [];
+        const author = row.user_name || (row.user_email ? maskEmail(row.user_email) : '다른 사용자');
+        list.forEach(w => {
+          if (w.title && w.imageUrl) {
+            const key = w.title.toLowerCase().replace(/\s+/g, '');
+            if (!COMMUNITY_PRESETS[key]) {
+              COMMUNITY_PRESETS[key] = {
+                title: w.title.trim(),
+                imgUrl: w.imageUrl.trim(),
+                isCommunity: true,
+                author: author
+              };
+            }
+          }
+        });
       });
+      console.log(`[집단지성 썸네일] 다른 사용자가 등록한 썸네일 총 ${Object.keys(COMMUNITY_PRESETS).length}편 연동 완료!`);
     }
   } catch (err) {
     console.warn("Community thumbnails load error:", err);
   }
 }
 
-async function contributeThumbnail(title, imageUrl) {
-  if (!spClient || !title || !imageUrl) return;
+function contributeThumbnail(title, imageUrl) {
+  if (!title || !imageUrl) return;
   const cleanKey = title.toLowerCase().replace(/\s+/g, '');
-
-  COMMUNITY_PRESETS[cleanKey] = { title, imgUrl: imageUrl, isCommunity: true };
-
-  try {
-    await spClient
-      .from('community_thumbnails')
-      .upsert({
-        title_key: cleanKey,
-        title: title.trim(),
-        image_url: imageUrl.trim(),
-        contributed_by: currentUser ? currentUser.email : '게스트',
-        created_at: new Date().toISOString()
-      });
-  } catch (e) {
-    console.warn("Community thumbnail contribute error:", e);
-  }
+  COMMUNITY_PRESETS[cleanKey] = {
+    title: title.trim(),
+    imgUrl: imageUrl.trim(),
+    isCommunity: true,
+    author: currentUser ? (currentUser.user_metadata?.full_name || maskEmail(currentUser.email)) : '나'
+  };
 }
 
 async function loadPublicLists(showToast) {
@@ -1307,8 +1308,39 @@ async function loadPublicLists(showToast) {
 
     if (error) throw error;
 
+    // 관리자(ADMIN_EMAIL) 계정의 _admin_titles 맵 확인 (관리자가 지정한 커스텀 이름)
+    let adminTitles = {};
+    const adminRow = (data || []).find(r => r.user_email === ADMIN_EMAIL);
+    if (adminRow && adminRow.data && adminRow.data._admin_titles) {
+      adminTitles = adminRow.data._admin_titles;
+    }
+
+    // 다른 사용자들이 등록한 모든 웹툰 이미지 집단지성 풀(COMMUNITY_PRESETS)에 즉시 자동 등록
+    (data || []).forEach(row => {
+      const list = row.data?.webtoons || [];
+      const author = row.user_name || (row.user_email ? maskEmail(row.user_email) : '다른 사용자');
+      list.forEach(w => {
+        if (w.title && w.imageUrl) {
+          const key = w.title.toLowerCase().replace(/\s+/g, '');
+          if (!COMMUNITY_PRESETS[key]) {
+            COMMUNITY_PRESETS[key] = {
+              title: w.title.trim(),
+              imgUrl: w.imageUrl.trim(),
+              isCommunity: true,
+              author: author
+            };
+          }
+        }
+      });
+    });
+
     publicLists = (data || []).filter(item => {
       return item.is_shared === true || (item.data && item.data._is_shared === true);
+    }).map(item => {
+      const assigned = adminTitles[item.user_id];
+      const ownTitle = item.share_title || (item.data && item.data._share_title);
+      item._effective_title = assigned || ownTitle || '';
+      return item;
     });
 
     updatePublicCountBadges();
@@ -1375,7 +1407,7 @@ function renderPublicListsModal(query) {
 
   list.forEach(item => {
     const isMe = currentUser && currentUser.id === item.user_id;
-    const title = item.share_title || (item.data && item.data._share_title) || (maskEmail(item.user_email) + ' 님의 컬렉션');
+    const title = item._effective_title || (maskEmail(item.user_email) + ' 님의 컬렉션');
     const count = (item.data && item.data.webtoons) ? item.data.webtoons.length : 0;
     const dateStr = item.updated_at ? new Date(item.updated_at).toLocaleDateString('ko-KR') : '';
 
@@ -1431,7 +1463,7 @@ async function viewSharedUser(userId) {
   currentViewingUserId = userId;
   db = target.data;
 
-  const title = target.share_title || (target.data && target.data._share_title) || (maskEmail(target.user_email) + ' 님의 컬렉션');
+  const title = target._effective_title || (maskEmail(target.user_email) + ' 님의 컬렉션');
   document.getElementById('sharedBanner').style.display = 'flex';
   document.getElementById('sharedBannerText').textContent = `👀 '${title}' 공개 리스트 둘러보는 중 (읽기 전용)`;
   document.getElementById('hTitle').textContent = `🌐 ${title}`;
@@ -1487,7 +1519,7 @@ function openAdminModalForCurrent() {
   if (!currentViewingUserId) return;
   const target = publicLists.find(p => p.user_id === currentViewingUserId);
   if (target) {
-    openAdminTitleModal(target.user_id, target.share_title || '', target.user_email || '');
+    openAdminTitleModal(target.user_id, target._effective_title || target.share_title || '', target.user_email || '');
   }
 }
 
@@ -1500,36 +1532,39 @@ async function submitAdminTitle() {
   }
 
   try {
-    // 1차: share_title 컬럼 업데이트 시도
-    let res = await spClient
+    // 관리자(본인) 행의 _admin_titles에 안전하게 영구 저장 (RLS 100% 통과 보장)
+    const { data: adminRow, error: fetchErr } = await spClient
       .from('user_webtoons')
-      .update({ share_title: newTitle, updated_at: new Date().toISOString() })
-      .eq('user_id', adminTargetUserId);
+      .select('data')
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
 
-    if (res.error) {
-      // fallback: data jsonb의 _share_title 업데이트
-      const { data: targetRow } = await spClient
-        .from('user_webtoons')
-        .select('data')
-        .eq('user_id', adminTargetUserId)
-        .maybeSingle();
+    if (fetchErr) throw fetchErr;
 
-      if (targetRow && targetRow.data) {
-        const updatedData = { ...targetRow.data, _share_title: newTitle };
-        const { error: err2 } = await spClient
-          .from('user_webtoons')
-          .update({ data: updatedData, updated_at: new Date().toISOString() })
-          .eq('user_id', adminTargetUserId);
-        if (err2) throw err2;
-      }
+    const adminData = (adminRow && adminRow.data) ? adminRow.data : { ...db };
+    if (!adminData._admin_titles) adminData._admin_titles = {};
+    adminData._admin_titles[adminTargetUserId] = newTitle;
+
+    const { error: saveErr } = await spClient
+      .from('user_webtoons')
+      .update({ data: adminData, updated_at: new Date().toISOString() })
+      .eq('user_id', currentUser.id);
+
+    if (saveErr) throw saveErr;
+
+    // 만약 현재 내 카탈로그 화면이라면 메모리 db도 즉시 반영
+    if (!currentViewingUserId && db) {
+      if (!db._admin_titles) db._admin_titles = {};
+      db._admin_titles[adminTargetUserId] = newTitle;
     }
 
-    toast(`리스트 이름이 '${newTitle}' (으)로 변경되었습니다! 👑`);
+    toast(`리스트 이름이 '${newTitle}' (으)로 지정되었습니다! 👑`);
     cl('adminTitleMdl');
-    await loadPublicLists(); loadCommunityThumbnails();
+    await loadPublicLists();
 
     if (currentViewingUserId === adminTargetUserId) {
       document.getElementById('sharedBannerText').textContent = `👀 '${newTitle}' 공개 리스트 둘러보는 중 (읽기 전용)`;
+      document.getElementById('hTitle').textContent = `🌐 ${newTitle}`;
     }
   } catch (err) {
     console.error("Admin title update error:", err);
@@ -1793,7 +1828,8 @@ function onTitleChange() {
   if (matchedImg) {
     setImageUrl(matchedImg);
     if (isFromCommunity) {
-      document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 다른 사용자가 공유한 이미지가 자동 연결되었습니다! (집단지성 💡)</span>`;
+      const author = COMMUNITY_PRESETS[clean]?.author ? ` (${COMMUNITY_PRESETS[clean].author} 님이 등록)` : '';
+      document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 다른 사용자가 등록한 이미지가 자동 연결되었습니다!${author} 💡</span>`;
     } else {
       document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#10b981; font-weight:800;">✓ 공식 웹툰 커버 이미지가 자동 연결되었습니다!</span>`;
     }
@@ -1814,10 +1850,10 @@ function onTitleChange() {
     }
   }
 
-  // Community Presets Candidates
+  // Community Presets Candidates (집단지성 유저 공유 풀)
   for (const [key, item] of Object.entries(COMMUNITY_PRESETS)) {
     if (key.includes(clean) && !seenTitles.has(key)) {
-      candidates.push({ title: item.title, imgUrl: item.imgUrl, source: '유저공유' });
+      candidates.push({ title: item.title, imgUrl: item.imgUrl, source: '유저공유', author: item.author });
       seenTitles.add(key);
       if (candidates.length >= 8) break;
     }
@@ -1829,7 +1865,7 @@ function onTitleChange() {
         <img src="${c.imgUrl}" referrerpolicy="no-referrer" style="width:32px; height:44px; object-fit:cover; border-radius:6px; flex-shrink:0;" />
         <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
           <span style="font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(c.title)}</span>
-          <span style="font-size:10px; color:${c.source === '유저공유' ? '#6366f1' : 'var(--text-muted)'}; font-weight:600;">${c.source === '유저공유' ? '💡 유저 공유 썸네일' : '공식 프리셋'}</span>
+          <span style="font-size:10px; color:${c.source === '유저공유' ? '#6366f1' : 'var(--text-muted)'}; font-weight:600;">${c.source === '유저공유' ? `💡 유저 등록${c.author ? ' (' + escapeHtml(c.author) + ')' : ''}` : '공식 프리셋'}</span>
         </div>
         <span style="font-size:12px; font-weight:700; color:var(--primary-color); flex-shrink:0;">선택</span>
       </div>
@@ -1885,6 +1921,7 @@ function openExtSearch() {
 // ══════════════════════════════════════════════════════
 function openAddModal() {
   if (currentViewingUserId) return;
+  loadCommunityThumbnails(); // 최신 유저 등록 이미지 풀 갱신
   editId = null;
   document.getElementById('addTitle').textContent = '새 웹툰 추가';
   document.getElementById('saveLabel').textContent = '추가';
