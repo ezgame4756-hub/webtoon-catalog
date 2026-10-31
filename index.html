@@ -99,6 +99,37 @@ body {
   .sidebar-overlay.open { display: block; }
 }
 
+@media (max-width: 640px) {
+  .grid-container {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+    padding: 12px !important;
+  }
+  .main-toolbar {
+    padding: 10px 14px !important;
+    gap: 8px !important;
+    flex-wrap: wrap;
+  }
+  .search-box-wrapper {
+    width: 100% !important;
+    order: 10;
+    margin-top: 4px;
+  }
+  .tier-badge {
+    width: 26px !important;
+    height: 26px !important;
+    font-size: 12px !important;
+    border-radius: 6px !important;
+  }
+  .ribbon {
+    font-size: 10px !important;
+    padding: 2px 6px !important;
+  }
+  .wt-card {
+    border-radius: 12px !important;
+  }
+}
+
 .nav-item {
   display: flex;
   align-items: center;
@@ -425,6 +456,21 @@ input:focus, textarea:focus, select:focus {
   to { opacity: 1; transform: scale(1); }
 }
 
+/* ── Public List Card in Modal ── */
+.public-card {
+  background: var(--bg-hover);
+  border: 1.5px solid var(--border-color);
+  border-radius: 12px;
+  padding: 13px 16px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.public-card:hover {
+  border-color: var(--primary-color);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(99,102,241,0.15);
+}
+
 /* ── Shared Banner ── */
 #sharedBanner {
   display: none;
@@ -521,13 +567,15 @@ input:focus, textarea:focus, select:focus {
 
   <!-- Nav Scroll Area -->
   <div style="flex:1; overflow-y:auto; padding:8px 0; min-height:0;">
-    <!-- Public Shared Lists Section -->
-    <div class="sec-label">
-      <span>🌐 모두의 공개 리스트</span>
-      <button class="btn bg_ xs" onclick="loadPublicLists()" title="공개 리스트 새로고침" style="padding:2px 6px; font-size:11px;">🔄</button>
-    </div>
-    <div id="publicListsNav">
-      <div style="padding:8px 16px; font-size:12px; color:var(--text-muted);">불러오는 중...</div>
+    <!-- Public Shared Lists Dedicated Button -->
+    <div style="padding:4px 10px 10px;">
+      <button class="btn bs" onclick="openPublicListsModal()" style="width:100%; justify-content:space-between; border-radius:12px; padding:10px 14px; background:linear-gradient(135deg, rgba(99,102,241,0.1), rgba(168,85,247,0.1)); border:1.5px solid rgba(99,102,241,0.25); font-weight:800; font-size:13px;">
+        <span style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:16px;">🌐</span>
+          <span>모두의 공개 리스트</span>
+        </span>
+        <span id="publicCountBadge" style="font-size:11px; background:var(--primary-color); color:#fff; border-radius:10px; padding:2px 7px;">0</span>
+      </button>
     </div>
 
     <!-- Personal Catalog Section -->
@@ -571,8 +619,8 @@ input:focus, textarea:focus, select:focus {
     </div>
   </div>
 
-  <!-- Header / Toolbar (Sticky at Top) -->
-  <div style="padding:14px 24px; border-bottom:1px solid var(--border-color); display:flex; align-items:center; gap:12px; background:var(--bg-card); position:sticky; top:0; z-index:20; flex-shrink:0;">
+  <!-- Header / Toolbar (Sticky at Top & Mobile Responsive) -->
+  <div class="main-toolbar" style="padding:14px 24px; border-bottom:1px solid var(--border-color); display:flex; align-items:center; gap:12px; background:var(--bg-card); position:sticky; top:0; z-index:20; flex-shrink:0;">
     <button class="btn bg_ sm md:hidden" onclick="toggleSidebar(true)" style="padding:6px 10px; font-size:20px;">☰</button>
     
     <div style="min-width:0; flex-shrink:1;">
@@ -582,8 +630,15 @@ input:focus, textarea:focus, select:focus {
 
     <div style="flex:1;"></div>
 
+    <!-- Public Lists Explorer Button in Toolbar -->
+    <button class="btn bs sm" onclick="openPublicListsModal()" title="모두의 공개 리스트 둘러보기" style="font-weight:700; font-size:13px; padding:8px 12px; display:inline-flex; align-items:center; gap:6px;">
+      <span>🌐</span>
+      <span style="font-weight:700;">공개 리스트</span>
+      <span id="publicCountBadgeHeader" style="font-size:10px; background:var(--primary-color); color:#fff; border-radius:8px; padding:1px 5px;">0</span>
+    </button>
+
     <!-- Laptop Search & Filters -->
-    <div style="position:relative; width:220px;">
+    <div class="search-box-wrapper" style="position:relative; width:220px;">
       <input id="searchQ" type="text" placeholder="제목, 장르, 메모 검색..." style="padding:8px 12px 8px 34px; font-size:13px; border-radius:10px;" oninput="render()" />
       <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); opacity:0.5; font-size:13px;">🔍</span>
     </div>
@@ -609,6 +664,36 @@ input:focus, textarea:focus, select:focus {
 </div>
 
 <div id="toast"></div>
+
+<!-- ══════════════ PUBLIC LISTS MODAL ══════════════ -->
+<div id="publicListsMdl" class="ov" style="display:none;" onclick="oc(event,'publicListsMdl')">
+<div class="mdl" onclick="event.stopPropagation()" style="width:min(660px, 95vw); max-height:85vh; display:flex; flex-direction:column; padding:22px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span style="font-size:24px;">🌐</span>
+      <div>
+        <h3 style="margin:0; font-size:18px; font-weight:900; letter-spacing:-0.02em;">모두의 공개 리스트 탐색</h3>
+        <div style="font-size:12px; color:var(--text-muted); font-weight:600;">다른 사용자들이 공개한 웹툰 컬렉션을 자유롭게 둘러보세요</div>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px;">
+      <button class="btn bg_ sm" onclick="loadPublicLists(true)" title="새로고침" style="font-size:13px; padding:6px 10px;">🔄 새로고침</button>
+      <button class="btn bg_ sm" onclick="cl('publicListsMdl')" style="font-size:20px; padding:4px 8px;">✕</button>
+    </div>
+  </div>
+
+  <!-- Search in Public Lists -->
+  <div style="margin-bottom:14px; flex-shrink:0; position:relative;">
+    <input id="publicSearchQ" type="text" placeholder="리스트 이름 또는 작성자 검색..." style="padding:9px 14px 9px 36px; font-size:13.5px;" oninput="filterPublicLists()" />
+    <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); opacity:0.5; font-size:14px;">🔍</span>
+  </div>
+
+  <!-- Lists Container -->
+  <div id="publicListsContainer" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px; min-height:160px; padding-right:4px;">
+    <div style="padding:20px; text-align:center; color:var(--text-muted); font-size:13px;">불러오는 중...</div>
+  </div>
+</div>
+</div>
 
 <!-- ══════════════ AUTH MODAL (LOGIN / SIGN UP) ══════════════ -->
 <div id="authMdl" class="ov" style="display:none;" onclick="oc(event,'authMdl')">
@@ -645,13 +730,13 @@ input:focus, textarea:focus, select:focus {
 </div>
 
 <!-- ══════════════ ADMIN SHARE TITLE MODAL ══════════════ -->
-<div id="adminTitleMdl" class="ov" style="display:none;" onclick="oc(event,'adminTitleMdl')">
+<div id="adminTitleMdl" class="ov" style="display:none;" onclick="oc(event,'adminTitleMdl','publicListsMdl')">
 <div class="mdl" onclick="event.stopPropagation()" style="width:min(440px,100%);">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
     <h3 style="margin:0; font-size:17px; font-weight:800; display:flex; align-items:center; gap:6px;">
       <span>👑</span> 공유 리스트 이름 지정
     </h3>
-    <button class="btn bg_ sm" onclick="cl('adminTitleMdl')" style="font-size:18px; padding:4px 8px;">×</button>
+    <button class="btn bg_ sm" onclick="cl('adminTitleMdl','publicListsMdl')" style="font-size:18px; padding:4px 8px;">×</button>
   </div>
   <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px; line-height:1.5;">
     관리자님께서 이 공개 리스트에 멋진 이름을 지어주시면 사이트의 모든 사용자가 그 이름으로 보게 됩니다!
@@ -667,7 +752,7 @@ input:focus, textarea:focus, select:focus {
     </div>
   </div>
   <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
-    <button class="btn bs" onclick="cl('adminTitleMdl')">취소</button>
+    <button class="btn bs" onclick="cl('adminTitleMdl','publicListsMdl')">취소</button>
     <button class="btn bp" onclick="submitAdminTitle()">이름 저장하기</button>
   </div>
 </div>
@@ -1225,9 +1310,8 @@ async function contributeThumbnail(title, imageUrl) {
   }
 }
 
-async function loadPublicLists() {
+async function loadPublicLists(showToast) {
   if (!spClient) return;
-  const nav = document.getElementById('publicListsNav');
   try {
     const { data, error } = await spClient
       .from('user_webtoons')
@@ -1236,16 +1320,24 @@ async function loadPublicLists() {
 
     if (error) throw error;
 
-    // Filter shared ones (supports column is_shared or json data._is_shared)
     publicLists = (data || []).filter(item => {
       return item.is_shared === true || (item.data && item.data._is_shared === true);
     });
 
-    renderPublicListsNav();
+    updatePublicCountBadges();
+    renderPublicListsModal();
+    if (showToast) toast("공개 리스트 목록을 새로고침했습니다! 🔄");
   } catch (err) {
     console.warn("Public lists load error:", err);
-    nav.innerHTML = '<div style="padding:6px 14px; font-size:12px; color:var(--text-muted);">공개 리스트가 없습니다.</div>';
   }
+}
+
+function updatePublicCountBadges() {
+  const count = publicLists.length;
+  const b1 = document.getElementById('publicCountBadge');
+  const b2 = document.getElementById('publicCountBadgeHeader');
+  if (b1) b1.textContent = count;
+  if (b2) b2.textContent = count;
 }
 
 function maskEmail(email) {
@@ -1256,41 +1348,85 @@ function maskEmail(email) {
   return name.slice(0, 3) + '***';
 }
 
-function renderPublicListsNav() {
-  const nav = document.getElementById('publicListsNav');
-  nav.innerHTML = '';
+function openPublicListsModal() {
+  toggleSidebar(false);
+  document.getElementById('publicSearchQ').value = '';
+  renderPublicListsModal();
+  document.getElementById('publicListsMdl').style.display = 'flex';
+  loadPublicLists(false);
+}
 
-  if (!publicLists.length) {
-    nav.innerHTML = '<div style="padding:6px 14px; font-size:12px; color:var(--text-muted);">현재 공개된 리스트가 없습니다.</div>';
+function filterPublicLists() {
+  const q = document.getElementById('publicSearchQ').value.toLowerCase().trim();
+  renderPublicListsModal(q);
+}
+
+function renderPublicListsModal(query) {
+  const container = document.getElementById('publicListsContainer');
+  if (!container) return;
+  container.innerHTML = '';
+
+  let list = [...publicLists];
+  if (query) {
+    list = list.filter(item => {
+      const title = (item.share_title || (item.data && item.data._share_title) || '').toLowerCase();
+      const email = (item.user_email || '').toLowerCase();
+      return title.includes(query) || email.includes(query);
+    });
+  }
+
+  if (!list.length) {
+    container.innerHTML = `
+      <div style="padding:40px 20px; text-align:center; color:var(--text-muted); display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <span style="font-size:36px;">🌐</span>
+        <div style="font-size:14px; font-weight:700;">${query ? '검색 결과와 일치하는 공개 리스트가 없습니다.' : '현재 공개된 리스트가 없습니다.'}</div>
+        <div style="font-size:12px;">사이드바의 [내 리스트 전체 공개] 스위치를 켜서 첫 번째 공개 리스트를 등록해보세요!</div>
+      </div>
+    `;
     return;
   }
 
-  publicLists.forEach(item => {
+  list.forEach(item => {
     const isMe = currentUser && currentUser.id === item.user_id;
     const title = item.share_title || (item.data && item.data._share_title) || (maskEmail(item.user_email) + ' 님의 컬렉션');
     const count = (item.data && item.data.webtoons) ? item.data.webtoons.length : 0;
-    const isActive = currentViewingUserId === item.user_id;
+    const dateStr = item.updated_at ? new Date(item.updated_at).toLocaleDateString('ko-KR') : '';
 
-    const el = document.createElement('div');
-    el.className = 'public-item' + (isActive ? ' active' : '');
-    el.innerHTML = `
-      <span style="font-size:15px;">🌐</span>
-      <div style="flex:1; min-width:0;">
-        <div style="font-size:12.5px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-          ${escapeHtml(title)} ${isMe ? '<span style="font-size:10px; opacity:0.8;">(나)</span>' : ''}
+    const card = document.createElement('div');
+    card.className = 'public-card';
+    card.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+        <div style="flex:1; min-width:0;">
+          <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+            <span style="font-size:15px; font-weight:800; color:var(--text-main); letter-spacing:-0.02em;">${escapeHtml(title)}</span>
+            ${isMe ? '<span style="font-size:10.5px; background:rgba(99,102,241,0.18); color:var(--primary-color); padding:1px 6px; border-radius:4px; font-weight:800;">내 리스트</span>' : ''}
+          </div>
+          <div style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:8px; font-weight:500;">
+            <span>👤 ${escapeHtml(maskEmail(item.user_email))}</span>
+            <span>•</span>
+            <span style="color:var(--text-main); font-weight:700;">📚 총 ${count}편</span>
+            ${dateStr ? `<span>•</span><span>🕒 ${dateStr}</span>` : ''}
+          </div>
         </div>
-        <div style="font-size:11px; opacity:0.7;">총 ${count}편 등록됨</div>
+        <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+          ${isAdmin() ? `<button class="btn bs xs" onclick="openAdminTitleModal('${item.user_id}', '${escapeHtml(title)}', '${escapeHtml(item.user_email || '')}', event)" style="font-size:11.5px; padding:5px 9px;">👑 이름 지정</button>` : ''}
+          <button class="btn bp xs" onclick="selectAndClosePublicList('${item.user_id}')" style="font-size:11.5px; padding:6px 12px;">둘러보기 →</button>
+        </div>
       </div>
-      ${isAdmin() ? `<button class="btn bg_ xs" onclick="openAdminTitleModal('${item.user_id}', '${escapeHtml(title)}', '${escapeHtml(item.user_email || '')}', event)" title="관리자: 리스트 이름 변경" style="padding:2px 5px; font-size:11px; border:1px solid var(--border-color); border-radius:4px;">✏️</button>` : ''}
     `;
 
-    el.onclick = (e) => {
+    card.onclick = (e) => {
       if (e.target.closest('button')) return;
-      viewSharedUser(item.user_id);
+      selectAndClosePublicList(item.user_id);
     };
 
-    nav.appendChild(el);
+    container.appendChild(card);
   });
+}
+
+function selectAndClosePublicList(userId) {
+  cl('publicListsMdl');
+  viewSharedUser(userId);
 }
 
 async function viewSharedUser(userId) {
@@ -1311,6 +1447,7 @@ async function viewSharedUser(userId) {
   const title = target.share_title || (target.data && target.data._share_title) || (maskEmail(target.user_email) + ' 님의 컬렉션');
   document.getElementById('sharedBanner').style.display = 'flex';
   document.getElementById('sharedBannerText').textContent = `👀 '${title}' 공개 리스트 둘러보는 중 (읽기 전용)`;
+  document.getElementById('hTitle').textContent = `🌐 ${title}`;
   document.getElementById('mainAddBtn').style.display = 'none';
   document.getElementById('addCatBtnArea').style.display = 'none';
 
@@ -1323,7 +1460,7 @@ async function viewSharedUser(userId) {
 
   toggleSidebar(false);
   renderAll();
-  renderPublicListsNav();
+  updatePublicCountBadges();
 }
 
 function exitShareMode() {
@@ -1338,7 +1475,7 @@ function exitShareMode() {
     hydrateGuest();
     renderAll();
   }
-  renderPublicListsNav();
+  updatePublicCountBadges();
 }
 
 // ══════════════════════════════════════════════════════
@@ -1355,7 +1492,7 @@ function openAdminTitleModal(userId, currentTitle, userEmail, e) {
   adminTargetUserId = userId;
   document.getElementById('admTargetEmail').value = userEmail || '사용자';
   document.getElementById('admTargetTitle').value = currentTitle || '';
-  document.getElementById('adminTitleMdl').style.display = 'flex';
+  document.getElementById('adminTitleMdl','publicListsMdl').style.display = 'flex';
   setTimeout(() => document.getElementById('admTargetTitle').focus(), 100);
 }
 
@@ -1384,7 +1521,7 @@ async function submitAdminTitle() {
     if (error) throw error;
 
     toast(`리스트 이름이 '${newTitle}' (으)로 변경되었습니다! 👑`);
-    cl('adminTitleMdl');
+    cl('adminTitleMdl','publicListsMdl');
     await loadPublicLists(); loadCommunityThumbnails();
 
     if (currentViewingUserId === adminTargetUserId) {
@@ -1993,7 +2130,7 @@ function toast(msg) {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') ['addMdl','catMdl','detMdl','authMdl','configMdl','adminTitleMdl'].forEach(cl);
+  if (e.key === 'Escape') ['addMdl','catMdl','detMdl','authMdl','configMdl','adminTitleMdl','publicListsMdl'].forEach(cl);
   if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); openAddModal(); }
 });
 
