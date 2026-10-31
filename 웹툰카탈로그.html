@@ -722,30 +722,6 @@ input:focus, textarea:focus, select:focus {
 </div>
 </div>
 
-<!-- ══════════════ MULTI-IMAGE PICKER MODAL ══════════════ -->
-<div id="multiImgMdl" class="ov" style="display:none;" onclick="oc(event,'multiImgMdl')">
-<div class="mdl" onclick="event.stopPropagation()" style="width:min(440px, 94vw); max-height:85vh; display:flex; flex-direction:column;">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-    <div>
-      <h3 id="multiImgModalTitle" style="margin:0; font-size:16px; font-weight:800;">🖼️ 등록 이미지 선택</h3>
-      <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">다른 사용자들이 등록한 이미지 중 마음에 드는 표지를 선택하세요.</div>
-    </div>
-    <button class="btn bg_ sm" onclick="cl('multiImgMdl')" style="font-size:18px; padding:4px 8px;">✕</button>
-  </div>
-  
-  <div id="multiImgGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(110px, 1fr)); gap:12px; overflow-y:auto; flex:1; max-height:55vh; padding:6px 2px;"></div>
-
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding-top:12px; border-top:1px solid var(--border-color); font-size:12px;">
-    <button class="btn bg_ sm" onclick="cl('multiImgMdl'); openExtSearch();" style="color:var(--primary-color); font-weight:700;">
-      🔍 웹에서 직접 찾기
-    </button>
-    <button class="btn bs sm" onclick="cl('multiImgMdl'); document.getElementById('f_imgUrl').focus();">
-      직접 URL 입력하기
-    </button>
-  </div>
-</div>
-</div>
-
 <!-- ══════════════ AUTH MODAL (LOGIN / SIGN UP) ══════════════ -->
 <div id="authMdl" class="ov" style="display:none;" onclick="oc(event,'authMdl')">
 <div class="mdl" onclick="event.stopPropagation()" style="width:min(400px,100%);">
@@ -781,7 +757,7 @@ input:focus, textarea:focus, select:focus {
 </div>
 
 <!-- ══════════════ ADMIN SHARE TITLE MODAL ══════════════ -->
-<div id="adminTitleMdl" class="ov" style="display:none;" onclick="oc(event,'adminTitleMdl','publicListsMdl')">
+<div id="adminTitleMdl" class="ov" style="display:none; z-index:220;" onclick="oc(event,'adminTitleMdl','publicListsMdl')">
 <div class="mdl" onclick="event.stopPropagation()" style="width:min(440px,100%);">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
     <h3 style="margin:0; font-size:17px; font-weight:800; display:flex; align-items:center; gap:6px;">
@@ -932,6 +908,30 @@ input:focus, textarea:focus, select:focus {
   <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
     <button class="btn bs" onclick="cl('addMdl')">취소</button>
     <button class="btn bp" onclick="saveWebtoon()"><span id="saveLabel">추가</span></button>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════ MULTI-IMAGE PICKER MODAL ══════════════ -->
+<div id="multiImgMdl" class="ov" style="display:none; z-index:300;" onclick="oc(event,'multiImgMdl')">
+<div class="mdl" onclick="event.stopPropagation()" style="width:min(440px, 94vw); max-height:85vh; display:flex; flex-direction:column;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <div>
+      <h3 id="multiImgModalTitle" style="margin:0; font-size:16px; font-weight:800;">🖼️ 등록 이미지 선택</h3>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">다른 사용자들이 등록한 이미지 중 마음에 드는 표지를 선택하세요.</div>
+    </div>
+    <button class="btn bg_ sm" onclick="cl('multiImgMdl')" style="font-size:18px; padding:4px 8px;">✕</button>
+  </div>
+  
+  <div id="multiImgGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(110px, 1fr)); gap:12px; overflow-y:auto; flex:1; max-height:55vh; padding:6px 2px;"></div>
+
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding-top:12px; border-top:1px solid var(--border-color); font-size:12px;">
+    <button class="btn bg_ sm" onclick="cl('multiImgMdl'); openExtSearch();" style="color:var(--primary-color); font-weight:700;">
+      🔍 웹에서 직접 찾기
+    </button>
+    <button class="btn bs sm" onclick="cl('multiImgMdl'); document.getElementById('f_imgUrl').focus();">
+      직접 URL 입력하기
+    </button>
   </div>
 </div>
 </div>
@@ -2038,6 +2038,7 @@ function openMultiImgModal() {
       const authorText = item.author ? ` (${item.author} 님 등록)` : '';
       document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ ${item.isFirst ? '👑 최초 등록자' : '💡 다른 유저'}${authorText}의 표지가 선택되었습니다!</span>`;
       updateMultiImgButton(title);
+      toast("선택하신 표지가 적용되었습니다! 🖼️");
     };
 
     grid.appendChild(card);
