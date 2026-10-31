@@ -519,6 +519,8 @@ input:focus, textarea:focus, select:focus {
 .candidate-item:hover { background: var(--bg-hover); }
 #catSwitcherBtn { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
 #catSwitcherBtn:hover, #catSwitcherBtn:active { background: var(--bg-hover) !important; }
+.tier-arrow-btn:hover { background: rgba(255,255,255,0.25) !important; }
+.tier-arrow-btn:active { transform: scale(0.92); }
 </style>
 </head>
 <body>
@@ -642,6 +644,12 @@ input:focus, textarea:focus, select:focus {
       <span>🌐</span>
       <span style="font-weight:700;">공개 리스트</span>
       <span id="publicCountBadgeHeader" style="font-size:10px; background:var(--primary-color); color:#fff; border-radius:8px; padding:1px 5px;">0</span>
+    </button>
+
+    <!-- Tier Rank Manager Button (Universal across all devices) -->
+    <button class="btn bs sm" onclick="openTierRankModal()" title="같은 티어 내 우열 순위 편집" style="font-weight:700; font-size:13px; padding:8px 12px; display:inline-flex; align-items:center; gap:6px; color:#f59e0b; border-color:rgba(245,158,11,0.3);">
+      <span>🏆</span>
+      <span style="font-weight:700;">티어 순위 편집</span>
     </button>
 
     <!-- Laptop Search & Filters -->
@@ -908,6 +916,39 @@ input:focus, textarea:focus, select:focus {
   <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
     <button class="btn bs" onclick="cl('addMdl')">취소</button>
     <button class="btn bp" onclick="saveWebtoon()"><span id="saveLabel">추가</span></button>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════ TIER RANK MANAGER MODAL ══════════════ -->
+<div id="tierRankMdl" class="ov" style="display:none; z-index:280;" onclick="oc(event,'tierRankMdl')">
+<div class="mdl" onclick="event.stopPropagation()" style="width:min(480px, 95vw); max-height:85vh; display:flex; flex-direction:column;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <div>
+      <h3 style="margin:0; font-size:17px; font-weight:800; display:flex; align-items:center; gap:6px;">
+        <span>🏆</span> 같은 티어 내 우열 순위 편집
+      </h3>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:3px;">
+        버튼을 터치하여 같은 티어 안에서 더 좋은 웹툰을 1위로 올려보세요!
+      </div>
+    </div>
+    <button class="btn bg_ sm" onclick="cl('tierRankMdl')" style="font-size:18px; padding:4px 8px;">✕</button>
+  </div>
+
+  <!-- Tier Selector Tabs -->
+  <div id="tierRankTabs" style="display:flex; gap:6px; overflow-x:auto; padding-bottom:8px; margin-bottom:12px; border-bottom:1px solid var(--border-color); flex-shrink:0;">
+    <!-- S, A, B, C, D tabs rendered dynamically -->
+  </div>
+
+  <!-- Reorder List for Selected Tier -->
+  <div id="tierRankList" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; min-height:220px; padding-right:4px;">
+    <!-- Items rendered dynamically -->
+  </div>
+
+  <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid var(--border-color);">
+    <button class="btn bp sm" onclick="cl('tierRankMdl');" style="padding:7px 18px; font-weight:800;">
+      완료
+    </button>
   </div>
 </div>
 </div>
@@ -1708,6 +1749,160 @@ function openFolderSwitcher(e) {
   document.getElementById('folderSwitcherMdl').style.display = 'flex';
 }
 
+
+// ══════════════════════════════════════════════════════
+//  UNIVERSAL TIER RANKING & REORDERING (MOBILE & DESKTOP)
+// ══════════════════════════════════════════════════════
+function swapTierRank(id, direction, e) {
+  if (e) e.stopPropagation();
+  if (currentViewingUserId) return;
+
+  const current = db.webtoons.find(w => w.id === id);
+  if (!current || !current.tier) {
+    toast("티어가 지정된 웹툰만 티어 순위를 변경할 수 있습니다.");
+    return;
+  }
+
+  // 같은 티어인 웹툰들을 현재 db.webtoons 순서대로 수집
+  const sameTierWebtoons = db.webtoons.filter(w => w.tier === current.tier);
+  const currTierIdx = sameTierWebtoons.findIndex(w => w.id === id);
+  if (currTierIdx < 0) return;
+
+  const targetTierIdx = currTierIdx + direction;
+  if (targetTierIdx < 0) {
+    toast(`'${current.title}'은(는) 이미 ${current.tier}티어 1위입니다! 👑`);
+    return;
+  }
+  if (targetTierIdx >= sameTierWebtoons.length) {
+    toast(`'${current.title}'은(는) 이미 ${current.tier}티어 최하위입니다.`);
+    return;
+  }
+
+  const target = sameTierWebtoons[targetTierIdx];
+  const idxA = db.webtoons.findIndex(w => w.id === current.id);
+  const idxB = db.webtoons.findIndex(w => w.id === target.id);
+
+  // Swap in db.webtoons
+  const temp = db.webtoons[idxA];
+  db.webtoons[idxA] = db.webtoons[idxB];
+  db.webtoons[idxB] = temp;
+
+  persist();
+  render();
+
+  const newRank = targetTierIdx + 1;
+  toast(`'${current.title}'을(를) ${current.tier}티어 ${newRank}위로 변경했습니다! 🏆`);
+
+  if (document.getElementById('tierRankMdl').style.display !== 'none') {
+    renderTierRankModalList();
+  }
+}
+
+let curSelectedRankTier = 'S';
+
+function openTierRankModal(tier) {
+  if (currentViewingUserId) return;
+  curSelectedRankTier = tier || curSelectedRankTier || 'S';
+  renderTierRankModalTabs();
+  renderTierRankModalList();
+  document.getElementById('tierRankMdl').style.display = 'flex';
+}
+
+function selectRankModalTier(t) {
+  curSelectedRankTier = t;
+  renderTierRankModalTabs();
+  renderTierRankModalList();
+}
+
+function renderTierRankModalTabs() {
+  const container = document.getElementById('tierRankTabs');
+  if (!container) return;
+  container.innerHTML = '';
+
+  TIERS.forEach(t => {
+    const count = db.webtoons.filter(w => w.tier === t.id).length;
+    const isAct = curSelectedRankTier === t.id;
+    const btn = document.createElement('button');
+    btn.className = 'btn sm ' + (isAct ? 'bp' : 'bs');
+    btn.style.fontSize = '12.5px';
+    btn.style.padding = '6px 12px';
+    btn.style.fontWeight = '800';
+    btn.style.borderRadius = '8px';
+    btn.style.whiteSpace = 'nowrap';
+    btn.innerHTML = `${t.name} <span style="font-size:11px; opacity:0.85;">(${count})</span>`;
+    btn.onclick = () => selectRankModalTier(t.id);
+    container.appendChild(btn);
+  });
+}
+
+function renderTierRankModalList() {
+  const container = document.getElementById('tierRankList');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const list = db.webtoons.filter(w => w.tier === curSelectedRankTier);
+  if (!list.length) {
+    container.innerHTML = `
+      <div style="text-align:center; padding:50px 20px; color:var(--text-muted); font-size:13px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <span style="font-size:36px;">💤</span>
+        <div>현재 ${curSelectedRankTier}티어에 등록된 웹툰이 없습니다.</div>
+        <div style="font-size:11.5px;">웹툰 추가 또는 수정 창에서 티어를 지정해보세요!</div>
+      </div>
+    `;
+    return;
+  }
+
+  list.forEach((w, rankIdx) => {
+    const rank = rankIdx + 1;
+    const row = document.createElement('div');
+    row.style.cssText = `
+      display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--bg-hover);
+      border-radius:10px; border:1px solid var(--border-color);
+    `;
+
+    const rankBadgeStyle = rank === 1
+      ? 'background:#f59e0b; color:#fff; font-weight:900;'
+      : (rank <= 3 ? 'background:rgba(99,102,241,0.2); color:var(--primary-color); font-weight:800;' : 'background:var(--bg-card); color:var(--text-muted); font-weight:700;');
+
+    row.innerHTML = `
+      <span style="width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:6px; font-size:12px; flex-shrink:0; ${rankBadgeStyle}">
+        ${rank === 1 ? '👑1' : rank}
+      </span>
+      <div style="width:34px; height:46px; border-radius:6px; overflow:hidden; background:var(--bg-card); flex-shrink:0;">
+        <img src="${w.imageUrl || ''}" referrerpolicy="no-referrer" style="width:100%; height:100%; object-fit:cover;" onerror="this.outerHTML='<div style=\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:16px;\'>📖</div>'" />
+      </div>
+      <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
+        <span style="font-size:13.5px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(w.title)}</span>
+        <span style="font-size:11px; color:var(--text-muted);">${w.chapter ? escapeHtml(w.chapter) : '회차 미기록'}</span>
+      </div>
+      <div style="display:flex; gap:4px; flex-shrink:0;">
+        <button class="btn bs xs" onclick="swapTierRank('${w.id}', -1, event)" ${rank === 1 ? 'disabled style="opacity:0.3;"' : ''} style="font-weight:900; padding:5px 8px;" title="위로">▲</button>
+        <button class="btn bs xs" onclick="swapTierRank('${w.id}', 1, event)" ${rank === list.length ? 'disabled style="opacity:0.3;"' : ''} style="font-weight:900; padding:5px 8px;" title="아래로">▼</button>
+        <button class="btn bp xs" onclick="setAsTierFirst('${w.id}', event)" ${rank === 1 ? 'disabled style="opacity:0.3;"' : ''} style="background:#f59e0b; color:#fff; font-weight:800; padding:5px 8px;" title="이 웹툰을 1위로 올리기">🔝 1위로</button>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function setAsTierFirst(id, e) {
+  if (e) e.stopPropagation();
+  const current = db.webtoons.find(w => w.id === id);
+  if (!current || !current.tier) return;
+
+  const sameTierFirst = db.webtoons.find(w => w.tier === current.tier);
+  if (sameTierFirst && sameTierFirst.id !== id) {
+    const idxCurrent = db.webtoons.findIndex(w => w.id === id);
+    const idxTarget = db.webtoons.findIndex(w => w.id === sameTierFirst.id);
+    db.webtoons.splice(idxCurrent, 1);
+    db.webtoons.splice(idxTarget, 0, current);
+    persist();
+    render();
+    renderTierRankModalList();
+    toast(`'${current.title}'이(가) ${current.tier}티어 1위로 지정되었습니다! 👑`);
+  }
+}
+
 function toggleTheme() {
   const html = document.documentElement;
   const btn = document.getElementById('themeBtn');
@@ -1863,23 +2058,39 @@ function render() {
     return;
   }
 
-  list.forEach(w => grid.appendChild(createCard(w)));
+  // Calculate tier ranks for display on badges
+  const tierCounters = {};
+  const tierRankMap = new Map();
+  list.forEach(w => {
+    const t = w.tier || '미지정';
+    tierCounters[t] = (tierCounters[t] || 0) + 1;
+    tierRankMap.set(w.id, tierCounters[t]);
+  });
+
+  list.forEach(w => grid.appendChild(createCard(w, tierRankMap.get(w.id))));
 }
 
-function createCard(w) {
+function createCard(w, tierRank) {
   const card = document.createElement('div');
   card.className = 'wt-card';
   card.dataset.id = w.id;
   card.draggable = !currentViewingUserId;
 
   const s = STATUS[w.status] || STATUS.reading;
-  const tierHtml = w.tier ? `<div class="tier-badge t-${w.tier}">${w.tier}</div>` : '';
+  const isTierMode = document.getElementById('sortSel').value === 'tier' || db.curTier;
+  const rankLabel = (w.tier && tierRank) ? `${w.tier} ${tierRank}위` : w.tier;
+  const tierHtml = w.tier ? `<div class="tier-badge t-${w.tier}" style="font-size:${tierRank ? '10.5px' : '11px'}; font-weight:900; letter-spacing:-0.03em;">${rankLabel}</div>` : '';
   const stars = w.rating > 0 ? '⭐'.repeat(w.rating) : '';
 
   card.innerHTML = `
     <div class="cover">
       ${tierHtml}
-      <div class="ribbon ${s.cls}">${s.label}</div>
+      ${(!currentViewingUserId && w.tier) ? `
+        <div style="position:absolute; top:8px; right:8px; display:flex; gap:2px; z-index:15; background:rgba(15,23,42,0.85); backdrop-filter:blur(4px); padding:2px 4px; border-radius:7px; border:1px solid rgba(255,255,255,0.18);">
+          <button class="tier-arrow-btn" onclick="swapTierRank('${w.id}', -1, event)" style="background:transparent; border:none; color:#fff; font-size:11px; padding:2px 5px; cursor:pointer; font-weight:900; border-radius:4px;" title="같은 티어 내 1단계 위로(우선)">▲</button>
+          <button class="tier-arrow-btn" onclick="swapTierRank('${w.id}', 1, event)" style="background:transparent; border:none; color:#fff; font-size:11px; padding:2px 5px; cursor:pointer; font-weight:900; border-radius:4px;" title="같은 티어 내 1단계 아래로">▼</button>
+        </div>
+      ` : `<div class="ribbon ${s.cls}">${s.label}</div>`}
       ${w.imageUrl
         ? `<img src="${w.imageUrl}" referrerpolicy="no-referrer" alt="${escapeHtml(w.title)}" onerror="onCardImgError(this, '${escapeHtml(w.title)}')" />`
         : `<div class="cover-ph"><span style="font-size:28px;">📖</span><span style="line-height:1.3; font-weight:700;">${escapeHtml(w.title)}</span></div>`
@@ -2218,10 +2429,46 @@ function openAddModal() {
   document.getElementById('f_tier').value = '';
   document.getElementById('f_rating').value = '0';
   document.getElementById('titleSuggestBox').style.display = 'none';
+  document.getElementById('imgStatusMsg').innerHTML = ''; // 이전 웹툰 안내 텍스트 잔존 방지
   setImageUrl('');
   popCatSelect();
   document.getElementById('addMdl').style.display = 'flex';
   setTimeout(() => document.getElementById('f_title').focus(), 100);
+}
+
+
+function updateImgStatusForEdit(title, imageUrl) {
+  const statusEl = document.getElementById('imgStatusMsg');
+  if (!statusEl) return;
+  if (!imageUrl) {
+    statusEl.innerHTML = '';
+    return;
+  }
+  const cleanKey = (title || '').toLowerCase().replace(/\s+/g, '');
+
+  // 1. 공식 프리셋 여부 확인
+  let isOfficial = false;
+  for (const [pTitle, pUrl] of Object.entries(WEBTOON_PRESETS)) {
+    if (pUrl === imageUrl || (pTitle.toLowerCase().replace(/\s+/g, '') === cleanKey && pUrl === imageUrl)) {
+      isOfficial = true;
+      break;
+    }
+  }
+
+  if (isOfficial) {
+    statusEl.innerHTML = `<span style="color:#10b981; font-weight:800;">✓ '${escapeHtml(title)}' 공식 웹툰 커버 이미지가 연결되어 있습니다!</span>`;
+  } else if (COMMUNITY_PRESETS[cleanKey] && COMMUNITY_PRESETS[cleanKey].imgUrl === imageUrl) {
+    const author = COMMUNITY_PRESETS[cleanKey].author ? ` (${escapeHtml(COMMUNITY_PRESETS[cleanKey].author)} 님)` : '';
+    statusEl.innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 최초 등록자${author}의 이미지가 연결되어 있습니다! 👑 💡</span>`;
+  } else {
+    const match = COMMUNITY_PRESETS_LIST.find(item => item.imgUrl === imageUrl);
+    if (match) {
+      const author = match.author ? ` (${escapeHtml(match.author)} 님)` : '';
+      statusEl.innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 다른 유저${author}가 등록한 이미지가 연결되어 있습니다! 💡</span>`;
+    } else {
+      statusEl.innerHTML = `<span style="color:var(--text-muted); font-weight:600;">🔗 커스텀 커버 이미지가 등록되어 있습니다.</span>`;
+    }
+  }
 }
 
 function editWt(id, e) {
@@ -2242,6 +2489,7 @@ function editWt(id, e) {
   document.getElementById('f_note').value = w.note || '';
   document.getElementById('titleSuggestBox').style.display = 'none';
   setImageUrl(w.imageUrl || '');
+  updateImgStatusForEdit(w.title, w.imageUrl || ''); // 현재 수정 중인 웹툰에 맞는 안내 텍스트로 정확히 동기화
   popCatSelect(w.catId);
   document.getElementById('addMdl').style.display = 'flex';
 }
@@ -2541,7 +2789,7 @@ function toast(msg) {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') ['addMdl','catMdl','detMdl','authMdl','configMdl','adminTitleMdl','publicListsMdl','folderSwitcherMdl','multiImgMdl'].forEach(cl);
+  if (e.key === 'Escape') ['addMdl','catMdl','detMdl','authMdl','configMdl','adminTitleMdl','publicListsMdl','folderSwitcherMdl','multiImgMdl','tierRankMdl'].forEach(cl);
   if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); openAddModal(); }
 });
 
