@@ -1535,12 +1535,54 @@ async function loadCommunityThumbnails() {
 function contributeThumbnail(title, imageUrl) {
   if (!title || !imageUrl) return;
   const cleanKey = title.toLowerCase().replace(/\s+/g, '');
-  COMMUNITY_PRESETS[cleanKey] = {
+  const author = currentUser ? (currentUser.user_metadata?.full_name || maskEmail(currentUser.email)) : '나';
+  const now = Date.now();
+
+  const existingFirst = COMMUNITY_PRESETS[cleanKey];
+  const isMeTheFirst = existingFirst && (existingFirst.author === author || existingFirst.author === '나');
+
+  const metaGenre = document.getElementById('f_genre') ? document.getElementById('f_genre').value : '';
+  const metaDay = document.getElementById('f_day') ? document.getElementById('f_day').value : '';
+  const metaEnd = document.getElementById('f_isEnd') ? (document.getElementById('f_isEnd').value === 'true') : false;
+  const metaAdult = document.getElementById('f_isAdult') ? document.getElementById('f_isAdult').checked : false;
+  const metaTags = document.getElementById('f_tags') ? document.getElementById('f_tags').value.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+  if (!existingFirst || isMeTheFirst) {
+    COMMUNITY_PRESETS[cleanKey] = {
+      title: title.trim(),
+      imgUrl: imageUrl.trim(),
+      isCommunity: true,
+      author: author,
+      contributedAt: existingFirst ? existingFirst.contributedAt : now,
+      isFirst: true,
+      genre: metaGenre,
+      publishDay: metaDay,
+      isEnd: metaEnd,
+      isAdult: metaAdult,
+      tags: metaTags
+    };
+  }
+
+  // COMMUNITY_PRESETS_LIST 갱신
+  const existingIdx = COMMUNITY_PRESETS_LIST.findIndex(it => it.key === cleanKey && it.author === author);
+  const listEntry = {
+    key: cleanKey,
     title: title.trim(),
     imgUrl: imageUrl.trim(),
-    isCommunity: true,
-    author: currentUser ? (currentUser.user_metadata?.full_name || maskEmail(currentUser.email)) : '나'
+    author: author,
+    contributedAt: existingFirst ? existingFirst.contributedAt : now,
+    genre: metaGenre,
+    publishDay: metaDay,
+    isEnd: metaEnd,
+    isAdult: metaAdult,
+    tags: metaTags
   };
+
+  if (existingIdx >= 0) {
+    COMMUNITY_PRESETS_LIST[existingIdx] = listEntry;
+  } else {
+    COMMUNITY_PRESETS_LIST.unshift(listEntry);
+  }
 }
 
 async function loadPublicLists(showToast) {
@@ -2807,12 +2849,8 @@ function processImageFile(file) {
         const approxKb = Math.round(compressedDataUrl.length * 0.75 / 1024);
 
         setImageUrl(compressedDataUrl);
-
-        const statusEl = document.getElementById('imgStatusMsg');
-        if (statusEl) {
-          statusEl.innerHTML = `<span style="color:#10b981; font-weight:800;">✓ 내 기기의 이미지 파일('${escapeHtml(file.name)}')이 첨부되었습니다! 📁 (${width}x${height}, 약 ${approxKb}KB)</span>`;
-        }
         const title = document.getElementById('f_title').value.trim();
+        updateImgStatusForEdit(title, compressedDataUrl);
         updateMultiImgButton(title);
         toast(`이미지 파일이 성공적으로 첨부되었습니다! 🖼️ (${approxKb}KB)`);
       } catch (err) {
@@ -3134,14 +3172,41 @@ function updateImgStatusForEdit(title, imageUrl) {
     statusEl.innerHTML = `💡 [📁 파일 업로드]나 [🔍 웹에서 찾기]로 이미지를 첨부해보세요!`;
     return;
   }
-  if (imageUrl.startsWith('data:')) {
-    const approxKb = Math.round(imageUrl.length * 0.75 / 1024);
-    statusEl.innerHTML = `<span style="color:#10b981; font-weight:800;">✓ 내 기기에서 직접 첨부한 이미지 파일이 연결되어 있습니다! 📁 (~${approxKb}KB)</span>`;
+
+  const cleanKey = (title || '').toLowerCase().replace(/\s+/g, '');
+  const firstItem = COMMUNITY_PRESETS[cleanKey];
+
+  // ★ 1. 최초 등록자 확인: 링크든 파일(data: URL)이든 최초 등록자의 이미지이거나 현재 편집자가 최초 등록자이면 명예의 전당 배너 표시!
+  const myName = currentUser ? (currentUser.user_metadata?.full_name || maskEmail(currentUser.email)) : '';
+  const isFirstByImg = firstItem && firstItem.imgUrl === imageUrl;
+  const isFirstByAuthor = firstItem && (firstItem.author === myName || firstItem.author === '나');
+  const isFirst = isFirstByImg || (isFirstByAuthor && (!editId || (db.webtoons.find(x => x.id === editId)?.addedAt <= firstItem.contributedAt)));
+
+  if (isFirst && firstItem) {
+    const author = firstItem.author ? ` (${escapeHtml(firstItem.author)} 님)` : '';
+    const isFile = imageUrl.startsWith('data:');
+    const approxKb = isFile ? Math.round(imageUrl.length * 0.75 / 1024) : 0;
+    const fileBadge = isFile ? `<span style="font-size:9.5px; background:#10b981; color:#fff; font-weight:800; padding:1px 6px; border-radius:10px;">📁 고화질 파일 ~${approxKb}KB</span>` : '';
+
+    statusEl.innerHTML = `
+      <div style="margin-top:8px; padding:10px 14px; background:linear-gradient(135deg, rgba(245,158,11,0.16) 0%, rgba(99,102,241,0.2) 100%); border:1.5px solid rgba(245,158,11,0.55); border-radius:12px; display:flex; align-items:center; gap:10px; box-shadow:0 4px 16px rgba(245,158,11,0.18);">
+        <span style="font-size:26px; filter:drop-shadow(0 2px 4px rgba(245,158,11,0.5));">👑</span>
+        <div style="flex:1; min-width:0;">
+          <div style="display:flex; align-items:center; gap:6px; margin-bottom:2px; flex-wrap:wrap;">
+            <span style="font-size:12px; font-weight:900; color:#f59e0b; letter-spacing:-0.02em;">★ 명예의 전당 최초 등록자</span>
+            <span style="font-size:9.5px; background:#f59e0b; color:#000; font-weight:900; padding:1px 6px; border-radius:10px;">FIRST</span>
+            ${fileBadge}
+          </div>
+          <div style="font-size:12px; color:var(--text-main); font-weight:700; line-height:1.4;">
+            <span style="color:#6366f1; font-weight:900;">${author || '최초 등록자'}</span> 님이 등록한 대표 표지가 적용되었습니다! ✨
+          </div>
+        </div>
+      </div>
+    `;
     return;
   }
-  const cleanKey = (title || '').toLowerCase().replace(/\s+/g, '');
 
-  // 1. 현재 웹툰 제목의 네이버 공식 프리셋과 일치하는지 확인
+  // 2. 공식 네이버 웹툰 프리셋 일치 여부
   let isOfficial = false;
   for (const [pTitle, pUrl] of Object.entries(WEBTOON_PRESETS)) {
     if (pTitle.toLowerCase().replace(/\s+/g, '') === cleanKey && pUrl === imageUrl) {
@@ -3149,34 +3214,25 @@ function updateImgStatusForEdit(title, imageUrl) {
       break;
     }
   }
-
   if (isOfficial) {
-    statusEl.innerHTML = `<span style="color:#10b981; font-weight:800;">✓ '${escapeHtml(title)}' 공식 웹툰 커버 이미지가 연결되어 있습니다!</span>`;
-  } else if (COMMUNITY_PRESETS[cleanKey] && COMMUNITY_PRESETS[cleanKey].imgUrl === imageUrl) {
-    const author = COMMUNITY_PRESETS[cleanKey].author ? ` (${escapeHtml(COMMUNITY_PRESETS[cleanKey].author)} 님)` : '';
-    statusEl.innerHTML = `
-      <div style="margin-top:8px; padding:10px 14px; background:linear-gradient(135deg, rgba(245,158,11,0.16) 0%, rgba(99,102,241,0.2) 100%); border:1.5px solid rgba(245,158,11,0.55); border-radius:12px; display:flex; align-items:center; gap:10px; box-shadow:0 4px 16px rgba(245,158,11,0.18);">
-        <span style="font-size:26px; filter:drop-shadow(0 2px 4px rgba(245,158,11,0.5));">👑</span>
-        <div style="flex:1; min-width:0;">
-          <div style="display:flex; align-items:center; gap:6px; margin-bottom:2px;">
-            <span style="font-size:12px; font-weight:900; color:#f59e0b; letter-spacing:-0.02em;">★ 명예의 전당 최초 등록자</span>
-            <span style="font-size:9.5px; background:#f59e0b; color:#000; font-weight:900; padding:1px 6px; border-radius:10px;">FIRST</span>
-          </div>
-          <div style="font-size:12px; color:var(--text-main); font-weight:700; line-height:1.4;">
-            <span style="color:#6366f1; font-weight:900;">${author}</span> 님이 최초로 발굴한 고화질 표지가 자동 연결되었습니다! ✨
-          </div>
-        </div>
-      </div>
-    `;
+    statusEl.innerHTML = `<span style="color:#10b981; font-weight:800;">✓ '${escapeHtml(title)}' 공식 웹툰 커버 이미지가 연결되어 있습니다! 🌟</span>`;
+    return;
+  }
+
+  // 3. 내 기기에서 직접 첨부한 로컬 이미지 파일 (최초 등록자가 아닌 개인 파일 첨부 시)
+  if (imageUrl.startsWith('data:')) {
+    const approxKb = Math.round(imageUrl.length * 0.75 / 1024);
+    statusEl.innerHTML = `<span style="color:#10b981; font-weight:800;">✓ 내 기기에서 직접 첨부한 이미지 파일이 연결되어 있습니다! 📁 (~${approxKb}KB)</span>`;
+    return;
+  }
+
+  // 4. 다른 사용자가 등록한 대체 이미지인지 확인
+  const match = (COMMUNITY_PRESETS_LIST || []).find(item => item.key === cleanKey && item.imgUrl === imageUrl);
+  if (match) {
+    const author = match.author ? ` (${escapeHtml(match.author)} 님)` : '';
+    statusEl.innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 다른 사용자${author}가 등록한 이미지가 연결되어 있습니다! 💡</span>`;
   } else {
-    // 2. 다른 사용자가 등록한 대체 이미지인지 확인
-    const match = (COMMUNITY_PRESETS_LIST || []).find(item => item.key === cleanKey && item.imgUrl === imageUrl);
-    if (match) {
-      const author = match.author ? ` (${escapeHtml(match.author)} 님)` : '';
-      statusEl.innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 다른 사용자${author}가 등록한 이미지가 연결되어 있습니다! 💡</span>`;
-    } else {
-      statusEl.innerHTML = `<span style="color:var(--text-muted); font-weight:600;">🔗 등록된 커버 이미지가 적용되어 있습니다.</span>`;
-    }
+    statusEl.innerHTML = `<span style="color:var(--text-muted); font-weight:600;">🔗 등록된 커버 이미지가 적용되어 있습니다.</span>`;
   }
 }
 
