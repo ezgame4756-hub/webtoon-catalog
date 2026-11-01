@@ -912,6 +912,16 @@ input:focus, textarea:focus, select:focus {
         <label class="lbl">카탈로그 폴더</label>
         <select id="f_cat"></select>
       </div>
+      <!-- 최초 등록자 표시 & 관리자 수정 버튼 -->
+      <div id="firstRegistrantBox" style="display:none; margin-top:2px;">
+        <label class="lbl" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <span>👑 최초 등록자</span>
+          <button id="adminEditFirstBtn" type="button" class="btn bs xs" onclick="adminPromptChangeFirstAuthor()" style="display:none; font-size:10.5px; padding:2px 8px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; font-weight:800; cursor:pointer;" title="관리자 권한으로 최초 등록자 닉네임 변경">✏️ 변경 (관리자)</button>
+        </label>
+        <div id="firstRegistrantDisplay" style="font-size:12px; font-weight:700; color:#f59e0b; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); border-radius:8px; padding:6px 12px; display:flex; align-items:center; gap:6px;">
+          <span id="firstRegistrantName"></span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1374,6 +1384,12 @@ function persist() {
 
 function hydrateGuest() {
   try {
+    const cachedPresets = localStorage.getItem('wt_cached_community_presets');
+    if (cachedPresets) COMMUNITY_PRESETS = JSON.parse(cachedPresets);
+    const cachedList = localStorage.getItem('wt_cached_community_list');
+    if (cachedList) COMMUNITY_PRESETS_LIST = JSON.parse(cachedList);
+  } catch (e) {}
+  try {
     const cached = localStorage.getItem('wt_cached_user_db');
     if (cached) {
       db = JSON.parse(cached);
@@ -1486,18 +1502,74 @@ async function handleShareToggle(checked) {
 }
 
 
+
 // ══════════════════════════════════════════════════════
-//  ADMIN: DESIGNATE / CHANGE FIRST REGISTRANT
+//  FIRST REGISTRANT HELPERS & ADMIN DESIGNATION
 // ══════════════════════════════════════════════════════
-async function adminSetFirstRegistrant(title, imgUrl, author, e) {
-  if (e) e.stopPropagation();
+function getFirstRegistrantInfo(title) {
+  if (!title) return { author: '', isOfficial: false, imgUrl: '' };
+  const cleanKey = title.toLowerCase().replace(/\s+/g, '');
+
+  // 1. Check Community Presets (First Registrant or Admin Override)
+  const firstItem = COMMUNITY_PRESETS[cleanKey];
+  if (firstItem && firstItem.author) {
+    return {
+      author: firstItem.author,
+      isOfficial: false,
+      imgUrl: firstItem.imgUrl || '',
+      contributedAt: firstItem.contributedAt
+    };
+  }
+
+  // 2. Check Official Naver Presets
+  for (const [pTitle, pUrl] of Object.entries(WEBTOON_PRESETS)) {
+    if (pTitle.toLowerCase().replace(/\s+/g, '') === cleanKey) {
+      return {
+        author: '네이버 웹툰 공식',
+        isOfficial: true,
+        imgUrl: pUrl
+      };
+    }
+  }
+
+  return { author: '', isOfficial: false, imgUrl: '' };
+}
+
+function updateFirstRegistrantUI(title) {
+  const box = document.getElementById('firstRegistrantBox');
+  const nameEl = document.getElementById('firstRegistrantName');
+  const adminBtn = document.getElementById('adminEditFirstBtn');
+  if (!box || !nameEl) return;
+
+  if (!title) {
+    box.style.display = 'none';
+    return;
+  }
+
+  box.style.display = 'block';
+  const info = getFirstRegistrantInfo(title);
+
+  if (info.author) {
+    if (info.isOfficial) {
+      nameEl.innerHTML = `<span style="color:#10b981; font-weight:800;">🌟 ${escapeHtml(info.author)}</span>`;
+    } else {
+      nameEl.innerHTML = `<span style="color:#f59e0b; font-weight:800;">👑 ${escapeHtml(info.author)} 님</span> <span style="font-size:10px; color:var(--text-muted); font-weight:normal;">(공식 최초 등록자)</span>`;
+    }
+  } else {
+    nameEl.innerHTML = `<span style="color:var(--text-muted); font-size:11px;">✨ 아직 등록된 최초 등록자가 없습니다 (내가 첫 등록자!)</span>`;
+  }
+
+  if (adminBtn) {
+    adminBtn.style.display = isAdmin() ? 'inline-flex' : 'none';
+  }
+}
+
+async function adminSaveFirstRegistrant(title, author, imgUrl) {
   if (!isAdmin()) {
     toast("관리자만 최초 등록자를 변경할 수 있습니다.");
     return;
   }
   const cleanKey = title.toLowerCase().replace(/\s+/g, '');
-  if (!confirm(`'${title}' 웹툰의 공식 최초 등록자를 '${author || '이 사용자'}' 님으로 지정하시겠습니까?\n(지정 시 모든 사용자에게 이 표지가 최초 등록자 대표로 고정됩니다)`)) return;
-
   try {
     const { data: adminRow } = await spClient
       .from('user_webtoons')
@@ -1508,8 +1580,9 @@ async function adminSetFirstRegistrant(title, imgUrl, author, e) {
     const adminData = (adminRow && adminRow.data) ? adminRow.data : { ...db };
     if (!adminData._admin_first_registrants) adminData._admin_first_registrants = {};
     adminData._admin_first_registrants[cleanKey] = {
-      imgUrl: imgUrl,
-      author: author || '유저',
+      author: author,
+      imgUrl: imgUrl || (COMMUNITY_PRESETS[cleanKey]?.imgUrl || ''),
+      title: title,
       designatedAt: Date.now()
     };
 
@@ -1518,25 +1591,95 @@ async function adminSetFirstRegistrant(title, imgUrl, author, e) {
       .update({ data: adminData, updated_at: new Date().toISOString() })
       .eq('user_id', currentUser.id);
 
-    // Update in memory immediately
-    if (COMMUNITY_PRESETS[cleanKey]) {
-      COMMUNITY_PRESETS[cleanKey].imgUrl = imgUrl;
-      if (author) COMMUNITY_PRESETS[cleanKey].author = author;
+    // Update in-memory immediately
+    if (!COMMUNITY_PRESETS[cleanKey]) {
+      COMMUNITY_PRESETS[cleanKey] = {
+        key: cleanKey,
+        title: title,
+        imgUrl: imgUrl || '',
+        author: author,
+        contributedAt: 0,
+        isCommunity: true,
+        isFirst: true
+      };
+    } else {
+      COMMUNITY_PRESETS[cleanKey].author = author;
+      if (imgUrl) COMMUNITY_PRESETS[cleanKey].imgUrl = imgUrl;
       COMMUNITY_PRESETS[cleanKey].isFirst = true;
     }
+
     COMMUNITY_PRESETS_LIST.forEach(it => {
       if (it.key === cleanKey) {
-        it.isFirst = (it.imgUrl === imgUrl);
+        it.isFirst = (it.author === author || it.imgUrl === imgUrl);
       }
     });
 
+    // Save to localStorage cache as well
+    try {
+      localStorage.setItem('wt_cached_community_presets', JSON.stringify(COMMUNITY_PRESETS));
+      localStorage.setItem('wt_cached_community_list', JSON.stringify(COMMUNITY_PRESETS_LIST));
+    } catch (e) {}
+
     toast(`'${title}'의 최초 등록자가 '${author}' 님으로 공식 지정되었습니다! 👑✨`);
-    openMultiImgModal();
-    updateImgStatusForEdit(title, imgUrl);
+
+    // Refresh UI
+    updateFirstRegistrantUI(title);
+    updateImgStatusForEdit(title, document.getElementById('f_imgUrl').value.trim());
+    updateMultiImgButton(title);
+    renderAll();
   } catch (err) {
-    console.error("Admin set first registrant error:", err);
+    console.error("Admin save first registrant error:", err);
     toast("최초 등록자 변경 실패: " + err.message);
   }
+}
+
+async function adminPromptChangeFirstAuthor() {
+  if (!isAdmin()) {
+    toast("관리자만 최초 등록자를 변경할 수 있습니다.");
+    return;
+  }
+  const title = document.getElementById('f_title').value.trim();
+  if (!title) { toast("웹툰 제목을 먼저 입력해주세요."); return; }
+  const cleanKey = title.toLowerCase().replace(/\s+/g, '');
+  const curInfo = getFirstRegistrantInfo(title);
+  const curAuthor = curInfo.author || '';
+
+  // Get candidate authors who registered this webtoon
+  const candidates = [];
+  const seenAuthors = new Set();
+  (COMMUNITY_PRESETS_LIST || []).forEach(it => {
+    if (it.key === cleanKey && it.author && !seenAuthors.has(it.author)) {
+      candidates.push(it.author);
+      seenAuthors.add(it.author);
+    }
+  });
+
+  const candidateMsg = candidates.length ? `\n\n(참여 사용자: ${candidates.join(', ')})` : '';
+  const newAuthor = prompt(`'${title}' 웹툰의 공식 최초 등록자 닉네임을 입력하세요:${candidateMsg}`, curAuthor);
+  if (newAuthor === null) return;
+  const trimmed = newAuthor.trim();
+  if (!trimmed) {
+    toast("최초 등록자 닉네임을 입력해주세요.");
+    return;
+  }
+
+  // Find image associated with this author if available
+  const matchItem = (COMMUNITY_PRESETS_LIST || []).find(it => it.key === cleanKey && it.author === trimmed);
+  const targetImg = matchItem ? matchItem.imgUrl : (curInfo.imgUrl || document.getElementById('f_imgUrl').value.trim());
+
+  await adminSaveFirstRegistrant(title, trimmed, targetImg);
+}
+
+async function adminSetFirstRegistrant(title, imgUrl, author, e) {
+  if (e) e.stopPropagation();
+  if (!isAdmin()) {
+    toast("관리자만 최초 등록자를 변경할 수 있습니다.");
+    return;
+  }
+  if (!confirm(`'${title}' 웹툰의 공식 최초 등록자를 '${author || '이 사용자'}' 님으로 지정하시겠습니까?\n(지정 시 모든 사용자에게 이 표지와 사용자가 최초 등록자 대표로 고정됩니다)`)) return;
+
+  await adminSaveFirstRegistrant(title, author || '유저', imgUrl);
+  openMultiImgModal();
 }
 
 // ══════════════════════════════════════════════════════
@@ -1629,6 +1772,24 @@ async function fetchCommunityAndPublicLists(showToast) {
       item._effective_title = assigned || ownTitle || '';
       return item;
     });
+
+    // Cache community presets & list into localStorage for instant 0ms access
+    try {
+      localStorage.setItem('wt_cached_community_presets', JSON.stringify(COMMUNITY_PRESETS));
+      localStorage.setItem('wt_cached_community_list', JSON.stringify(COMMUNITY_PRESETS_LIST));
+    } catch(e) {}
+
+    // If edit/add modal is currently open, refresh UI with newly loaded data
+    const addMdl = document.getElementById('addMdl');
+    if (addMdl && addMdl.style.display === 'flex') {
+      const curTitle = document.getElementById('f_title')?.value.trim();
+      const curUrl = document.getElementById('f_imgUrl')?.value.trim();
+      if (curTitle) {
+        updateFirstRegistrantUI(curTitle);
+        updateMultiImgButton(curTitle);
+        updateImgStatusForEdit(curTitle, curUrl || '');
+      }
+    }
 
     updatePublicCountBadges();
     renderPublicListsModal();
@@ -2787,27 +2948,8 @@ function openMultiImgModal() {
         }
       }
 
-      const authorText = item.author ? ` (${escapeHtml(item.author)} 님)` : '';
-      if (item.isOfficial) {
-        document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#10b981; font-weight:800;">✓ '${escapeHtml(title)}' 공식 이미지와 정보가 적용되었습니다! 🌟</span>`;
-      } else if (item.isFirst) {
-        document.getElementById('imgStatusMsg').innerHTML = `
-          <div style="margin-top:8px; padding:10px 14px; background:linear-gradient(135deg, rgba(245,158,11,0.16) 0%, rgba(99,102,241,0.2) 100%); border:1.5px solid rgba(245,158,11,0.55); border-radius:12px; display:flex; align-items:center; gap:10px; box-shadow:0 4px 16px rgba(245,158,11,0.18);">
-            <span style="font-size:26px; filter:drop-shadow(0 2px 4px rgba(245,158,11,0.5));">👑</span>
-            <div style="flex:1; min-width:0;">
-              <div style="display:flex; align-items:center; gap:6px; margin-bottom:2px;">
-                <span style="font-size:12px; font-weight:900; color:#f59e0b; letter-spacing:-0.02em;">★ 명예의 전당 최초 등록자</span>
-                <span style="font-size:9.5px; background:#f59e0b; color:#000; font-weight:900; padding:1px 6px; border-radius:10px;">FIRST</span>
-              </div>
-              <div style="font-size:12px; color:var(--text-main); font-weight:700; line-height:1.4;">
-                <span style="color:#6366f1; font-weight:900;">${authorText}</span> 님이 최초 등록한 고화질 표지와 정보가 자동 인용되었습니다! ✨
-              </div>
-            </div>
-          </div>
-        `;
-      } else {
-        document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 다른 유저${authorText}의 표지와 정보가 선택되었습니다! 💡</span>`;
-      }
+      updateImgStatusForEdit(title, item.imgUrl);
+      updateFirstRegistrantUI(title);
       updateMultiImgButton(title);
       if (adoptedOtherUser) {
         toast(`'${item.author || '유저'}' 님의 표지 및 등록 정보(장르/요일/성인)가 함께 인용되었습니다! 🖼️📋`);
@@ -2828,6 +2970,7 @@ function onTitleChange() {
   const suggestBox = document.getElementById('titleSuggestBox');
 
   updateMultiImgButton(raw);
+  updateFirstRegistrantUI(raw);
 
   if (!clean) {
     suggestBox.style.display = 'none';
@@ -3347,6 +3490,8 @@ function openAddModal() {
   document.getElementById('titleSuggestBox').style.display = 'none';
   document.getElementById('imgStatusMsg').innerHTML = ''; // 이전 웹툰 안내 텍스트 잔존 방지
   setImageUrl('');
+  updateFirstRegistrantUI('');
+  updateMultiImgButton('');
   popCatSelect();
   document.getElementById('addMdl').style.display = 'flex';
   setTimeout(() => document.getElementById('f_title').focus(), 100);
@@ -3363,19 +3508,16 @@ function updateImgStatusForEdit(title, imageUrl) {
 
   const cleanKey = (title || '').toLowerCase().replace(/\s+/g, '');
   const firstItem = COMMUNITY_PRESETS[cleanKey];
-
-  // ★ 1. 최초 등록자 확인: 링크든 파일(data: URL)이든 최초 등록자의 이미지이거나 현재 편집자가 최초 등록자이면 명예의 전당 배너 표시!
   const myName = currentUser ? (currentUser.user_metadata?.full_name || maskEmail(currentUser.email)) : '';
-  const isFirstByImg = firstItem && firstItem.imgUrl === imageUrl;
-  const isFirstByAuthor = firstItem && (firstItem.author === myName || firstItem.author === '나');
-  const isFirst = isFirstByImg || (isFirstByAuthor && (!editId || (db.webtoons.find(x => x.id === editId)?.addedAt <= firstItem.contributedAt)));
+  const isFile = imageUrl.startsWith('data:');
+  const approxKb = isFile ? Math.round(imageUrl.length * 0.75 / 1024) : 0;
+  const fileBadge = isFile ? `<span style="font-size:9.5px; background:#10b981; color:#fff; font-weight:800; padding:1px 6px; border-radius:10px;">📁 고화질 파일 ~${approxKb}KB</span>` : '';
+
+  // ★ 1. 최초 등록자 일치 확인: 대표 최초 등록자 표지와 일치할 때 골드 명예의 전당 배너 노출!
+  const isFirst = firstItem && firstItem.imgUrl === imageUrl;
 
   if (isFirst && firstItem) {
-    const author = firstItem.author ? ` (${escapeHtml(firstItem.author)} 님)` : '';
-    const isFile = imageUrl.startsWith('data:');
-    const approxKb = isFile ? Math.round(imageUrl.length * 0.75 / 1024) : 0;
-    const fileBadge = isFile ? `<span style="font-size:9.5px; background:#10b981; color:#fff; font-weight:800; padding:1px 6px; border-radius:10px;">📁 고화질 파일 ~${approxKb}KB</span>` : '';
-
+    const author = firstItem.author ? `${escapeHtml(firstItem.author)} 님` : '최초 등록자';
     statusEl.innerHTML = `
       <div style="margin-top:8px; padding:10px 14px; background:linear-gradient(135deg, rgba(245,158,11,0.16) 0%, rgba(99,102,241,0.2) 100%); border:1.5px solid rgba(245,158,11,0.55); border-radius:12px; display:flex; align-items:center; gap:10px; box-shadow:0 4px 16px rgba(245,158,11,0.18);">
         <span style="font-size:26px; filter:drop-shadow(0 2px 4px rgba(245,158,11,0.5));">👑</span>
@@ -3386,7 +3528,7 @@ function updateImgStatusForEdit(title, imageUrl) {
             ${fileBadge}
           </div>
           <div style="font-size:12px; color:var(--text-main); font-weight:700; line-height:1.4;">
-            <span style="color:#6366f1; font-weight:900;">${author || '최초 등록자'}</span> 님이 등록한 대표 표지가 적용되었습니다! ✨
+            <span style="color:#6366f1; font-weight:900;">${author}</span> 이 등록한 공식 대표 표지가 적용되었습니다! ✨
           </div>
         </div>
       </div>
@@ -3394,7 +3536,7 @@ function updateImgStatusForEdit(title, imageUrl) {
     return;
   }
 
-  // 2. 공식 네이버 웹툰 프리셋 일치 여부
+  // ★ 2. 공식 네이버 웹툰 프리셋 일치 여부
   let isOfficial = false;
   for (const [pTitle, pUrl] of Object.entries(WEBTOON_PRESETS)) {
     if (pTitle.toLowerCase().replace(/\s+/g, '') === cleanKey && pUrl === imageUrl) {
@@ -3407,21 +3549,34 @@ function updateImgStatusForEdit(title, imageUrl) {
     return;
   }
 
-  // 3. 내 기기에서 직접 첨부한 로컬 이미지 파일 (최초 등록자가 아닌 개인 파일 첨부 시)
-  if (imageUrl.startsWith('data:')) {
-    const approxKb = Math.round(imageUrl.length * 0.75 / 1024);
-    statusEl.innerHTML = `<span style="color:#10b981; font-weight:800;">✓ 내 기기에서 직접 첨부한 이미지 파일이 연결되어 있습니다! 📁 (~${approxKb}KB)</span>`;
+  // ★ 3. 집단지성 커뮤니티 목록(COMMUNITY_PRESETS_LIST)에서 등록자 조회
+  // (CRITICAL: 타인이 업로드한 base64 파일을 '내 기기에서 직접 첨부'로 잘못 표시하지 않도록 먼저 체크!)
+  const match = (COMMUNITY_PRESETS_LIST || []).find(item => item.key === cleanKey && item.imgUrl === imageUrl);
+  if (match) {
+    const isMe = myName && (match.author === myName || match.author === '나');
+    if (isMe) {
+      statusEl.innerHTML = `<span style="color:#10b981; font-weight:800;">✓ 내가 등록한 ${isFile ? '고화질 이미지 파일' : '이미지'}이 연결되어 있습니다! 📁 ${approxKb ? `(~${approxKb}KB)` : ''}</span>`;
+    } else {
+      statusEl.innerHTML = `
+        <div style="margin-top:6px; padding:8px 12px; background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.25); border-radius:8px; display:flex; align-items:center; gap:8px;">
+          <span style="font-size:16px;">💡</span>
+          <span style="font-size:11.5px; color:var(--text-main); font-weight:700;">
+            다른 사용자 <span style="color:#6366f1; font-weight:900;">(${escapeHtml(match.author || '유저')} 님)</span>이 등록한 ${isFile ? '고화질 파일' : '이미지'}을 인용 중입니다! ${approxKb ? `📁 (~${approxKb}KB)` : ''}
+          </span>
+        </div>
+      `;
+    }
     return;
   }
 
-  // 4. 다른 사용자가 등록한 대체 이미지인지 확인
-  const match = (COMMUNITY_PRESETS_LIST || []).find(item => item.key === cleanKey && item.imgUrl === imageUrl);
-  if (match) {
-    const author = match.author ? ` (${escapeHtml(match.author)} 님)` : '';
-    statusEl.innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 다른 사용자${author}가 등록한 이미지가 연결되어 있습니다! 💡</span>`;
-  } else {
-    statusEl.innerHTML = `<span style="color:var(--text-muted); font-weight:600;">🔗 등록된 커버 이미지가 적용되어 있습니다.</span>`;
+  // ★ 4. 커뮤니티 목록에 없는 순수 로컬 파일 첨부 (새로 내 PC에서 파일 업로드했을 때만 해당!)
+  if (isFile) {
+    statusEl.innerHTML = `<span style="color:#10b981; font-weight:800;">✓ 내 기기에서 새로 첨부한 이미지 파일입니다! 📁 (~${approxKb}KB)</span>`;
+    return;
   }
+
+  // ★ 5. 일반 외부 링크
+  statusEl.innerHTML = `<span style="color:var(--text-muted); font-weight:600;">🔗 외부 이미지 링크가 연결되어 있습니다.</span>`;
 }
 
 function editWt(id, e) {
@@ -3433,6 +3588,7 @@ function editWt(id, e) {
   document.getElementById('addTitle').textContent = '웹툰 정보 수정';
   document.getElementById('saveLabel').textContent = '저장';
   document.getElementById('f_title').value = w.title;
+  updateFirstRegistrantUI(w.title);
   updateMultiImgButton(w.title);
   document.getElementById('f_tier').value = w.tier || '';
   document.getElementById('f_status').value = w.status || 'reading';
@@ -3620,6 +3776,10 @@ function showDetail(id) {
           <div>⭐ 별점: <span style="color:var(--text-main); font-weight:700;">${stars}</span></div>
           ${w.chapter ? `<div>📄 진행도: <span style="color:var(--text-main); font-weight:700;">${w.chapter}</span></div>` : ''}
           <div>📅 등록일: <span style="color:var(--text-main);">${added}</span></div>
+          <div>👑 최초 등록자: <span style="color:#f59e0b; font-weight:800;">${(() => {
+            const fi = getFirstRegistrantInfo(w.title);
+            return fi.author ? (fi.isOfficial ? '🌟 네이버 공식' : `👑 ${escapeHtml(fi.author)} 님`) : '✨ 미지정 (내가 첫 등록자!)';
+          })()}</span></div>
         </div>
         ${w.tags && w.tags.length ? `
           <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:6px;">
