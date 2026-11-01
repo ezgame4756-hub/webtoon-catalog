@@ -1415,12 +1415,20 @@ async function syncToCloudNow() {
   if (!spClient || !currentUser || currentViewingUserId) return;
   const syncDot = document.getElementById('syncDot');
   try {
+    const adminProps = {};
+    if (isAdmin() && db) {
+      if (db._admin_first_registrants) adminProps._admin_first_registrants = db._admin_first_registrants;
+      if (db._admin_titles) adminProps._admin_titles = db._admin_titles;
+      if (db._banned_covers) adminProps._banned_covers = db._banned_covers;
+      if (db._banned_webtoons) adminProps._banned_webtoons = db._banned_webtoons;
+    }
     const payload = {
       user_id: currentUser.id,
       user_email: currentUser.email,
       user_name: currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || '',
       data: {
         ...db,
+        ...adminProps,
         _is_shared: myShareStatus,
         _share_title: myShareTitle || ''
       },
@@ -1458,6 +1466,12 @@ async function loadCloudData(userId) {
     if (data && data.data && data.data.catalogs) {
       // 기존 저장된 웹툰 목록 성공적으로 로드
       db = data.data;
+      if (isAdmin()) {
+        if (data.data._admin_first_registrants) db._admin_first_registrants = data.data._admin_first_registrants;
+        if (data.data._admin_titles) db._admin_titles = data.data._admin_titles;
+        if (data.data._banned_covers) db._banned_covers = data.data._banned_covers;
+        if (data.data._banned_webtoons) db._banned_webtoons = data.data._banned_webtoons;
+      }
       try {
         localStorage.setItem('wt_cached_user_db', JSON.stringify(db));
       } catch (e) {}
@@ -1509,6 +1523,17 @@ async function handleShareToggle(checked) {
 function getFirstRegistrantInfo(title) {
   if (!title) return { author: '', isOfficial: false, imgUrl: '' };
   const cleanKey = title.toLowerCase().replace(/\s+/g, '');
+
+  // 0. Check admin first registrants in db directly
+  const adminOverride = (db && db._admin_first_registrants && db._admin_first_registrants[cleanKey]);
+  if (adminOverride && adminOverride.author) {
+    return {
+      author: adminOverride.author,
+      isOfficial: false,
+      imgUrl: adminOverride.imgUrl || (COMMUNITY_PRESETS[cleanKey]?.imgUrl || ''),
+      contributedAt: adminOverride.designatedAt || 0
+    };
+  }
 
   // 1. Check Community Presets (First Registrant or Admin Override)
   const firstItem = COMMUNITY_PRESETS[cleanKey];
@@ -1571,60 +1596,55 @@ async function adminSaveFirstRegistrant(title, author, imgUrl) {
   }
   const cleanKey = title.toLowerCase().replace(/\s+/g, '');
   try {
-    const { data: adminRow } = await spClient
-      .from('user_webtoons')
-      .select('data')
-      .eq('user_id', currentUser.id)
-      .maybeSingle();
-
-    const adminData = (adminRow && adminRow.data) ? adminRow.data : { ...db };
-    if (!adminData._admin_first_registrants) adminData._admin_first_registrants = {};
-    adminData._admin_first_registrants[cleanKey] = {
+    const designatedObj = {
       author: author,
       imgUrl: imgUrl || (COMMUNITY_PRESETS[cleanKey]?.imgUrl || ''),
       title: title,
       designatedAt: Date.now()
     };
 
-    await spClient
-      .from('user_webtoons')
-      .update({ data: adminData, updated_at: new Date().toISOString() })
-      .eq('user_id', currentUser.id);
+    // 1. In-memory db sync
+    if (!db._admin_first_registrants) db._admin_first_registrants = {};
+    db._admin_first_registrants[cleanKey] = designatedObj;
 
-    // Update in-memory immediately
+    // 2. In-memory presets sync
     if (!COMMUNITY_PRESETS[cleanKey]) {
       COMMUNITY_PRESETS[cleanKey] = {
         key: cleanKey,
         title: title,
-        imgUrl: imgUrl || '',
+        imgUrl: designatedObj.imgUrl,
         author: author,
-        contributedAt: 0,
+        contributedAt: designatedObj.designatedAt,
         isCommunity: true,
         isFirst: true
       };
     } else {
       COMMUNITY_PRESETS[cleanKey].author = author;
-      if (imgUrl) COMMUNITY_PRESETS[cleanKey].imgUrl = imgUrl;
+      if (designatedObj.imgUrl) COMMUNITY_PRESETS[cleanKey].imgUrl = designatedObj.imgUrl;
       COMMUNITY_PRESETS[cleanKey].isFirst = true;
     }
 
     COMMUNITY_PRESETS_LIST.forEach(it => {
       if (it.key === cleanKey) {
-        it.isFirst = (it.author === author || it.imgUrl === imgUrl);
+        it.isFirst = (it.author === author || (designatedObj.imgUrl && it.imgUrl === designatedObj.imgUrl));
       }
     });
 
-    // Save to localStorage cache as well
+    // 3. Immediately cache to localStorage
     try {
+      localStorage.setItem('wt_cached_user_db', JSON.stringify(db));
       localStorage.setItem('wt_cached_community_presets', JSON.stringify(COMMUNITY_PRESETS));
       localStorage.setItem('wt_cached_community_list', JSON.stringify(COMMUNITY_PRESETS_LIST));
     } catch (e) {}
 
+    // 4. Immediately persist to Cloud
+    await syncToCloudNow();
+
     toast(`'${title}'의 최초 등록자가 '${author}' 님으로 공식 지정되었습니다! 👑✨`);
 
-    // Refresh UI
+    // 5. Refresh open UI
     updateFirstRegistrantUI(title);
-    updateImgStatusForEdit(title, document.getElementById('f_imgUrl').value.trim());
+    updateImgStatusForEdit(title, document.getElementById('f_imgUrl')?.value.trim() || designatedObj.imgUrl);
     updateMultiImgButton(title);
     renderAll();
   } catch (err) {
@@ -1743,17 +1763,37 @@ async function fetchCommunityAndPublicLists(showToast) {
     });
 
     // 2. Apply admin first registrant overrides
+    if (isAdmin() && Object.keys(adminFirsts).length > 0) {
+      if (!db._admin_first_registrants) db._admin_first_registrants = {};
+      Object.assign(db._admin_first_registrants, adminFirsts);
+    }
+
     Object.entries(adminFirsts).forEach(([key, override]) => {
-      if (override && override.imgUrl && COMMUNITY_PRESETS[key]) {
-        COMMUNITY_PRESETS[key].imgUrl = override.imgUrl;
-        if (override.author) COMMUNITY_PRESETS[key].author = override.author;
-        COMMUNITY_PRESETS[key].isFirst = true;
+      if (override && override.author) {
+        if (!COMMUNITY_PRESETS[key]) {
+          COMMUNITY_PRESETS[key] = {
+            key: key,
+            title: override.title || key,
+            imgUrl: override.imgUrl || '',
+            author: override.author,
+            contributedAt: override.designatedAt || 0,
+            isCommunity: true,
+            isFirst: true
+          };
+        } else {
+          COMMUNITY_PRESETS[key].author = override.author;
+          if (override.imgUrl) COMMUNITY_PRESETS[key].imgUrl = override.imgUrl;
+          COMMUNITY_PRESETS[key].isFirst = true;
+        }
       }
     });
 
     // Mark isFirst in list
     COMMUNITY_PRESETS_LIST.forEach(it => {
-      it.isFirst = (COMMUNITY_PRESETS[it.key] && COMMUNITY_PRESETS[it.key].imgUrl === it.imgUrl);
+      const matchFirst = COMMUNITY_PRESETS[it.key];
+      if (matchFirst) {
+        it.isFirst = (matchFirst.author === it.author || (matchFirst.imgUrl && matchFirst.imgUrl === it.imgUrl));
+      }
     });
     COMMUNITY_PRESETS_LIST.sort((a, b) => (b.isFirst ? 1 : 0) - (a.isFirst ? 1 : 0) || a.contributedAt - b.contributedAt);
 
@@ -1809,71 +1849,6 @@ async function loadCommunityThumbnails() {
   return fetchCommunityAndPublicLists(false);
 }
 
-async function _legacy_loadCommunityThumbnails() {
-  if (!spClient) return;
-  try {
-    // Supabase에서 모든 유저의 웹툰 목록을 읽어옵니다.
-    const { data, error } = await spClient
-      .from('user_webtoons')
-      .select('data, user_email, user_name, updated_at');
-
-    if (!error && data) {
-      const adminRow = (data || []).find(r => r.user_email === ADMIN_EMAIL);
-      const bannedCovers = new Set(adminRow?.data?._banned_covers || []);
-      COMMUNITY_PRESETS = {};
-      COMMUNITY_PRESETS_LIST = [];
-      data.forEach(row => {
-        const list = row.data?.webtoons || [];
-        const author = row.user_name || (row.user_email ? maskEmail(row.user_email) : '다른 사용자');
-        list.forEach(w => {
-          if (w.title && w.imageUrl) {
-            const key = w.title.toLowerCase().replace(/\s+/g, '');
-            // 관리자가 삭제/차단한 표지 제외
-            if (bannedCovers.has(w.imageUrl)) return;
-            const itemTime = w.addedAt ? Number(w.addedAt) : (row.updated_at ? new Date(row.updated_at).getTime() : 9999999999999);
-
-            // ★ 최초 등록자 원칙: 가장 먼저 등록한 사용자의 이미지와 수고를 인정하여 1순위 대표로 고정!
-            if (!COMMUNITY_PRESETS[key] || itemTime < COMMUNITY_PRESETS[key].contributedAt) {
-              COMMUNITY_PRESETS[key] = {
-                title: w.title.trim(),
-                imgUrl: w.imageUrl.trim(),
-                isCommunity: true,
-                author: author,
-                contributedAt: itemTime,
-                isFirst: true,
-                genre: w.genre || '',
-                publishDay: w.publishDay || '',
-                isEnd: w.isEnd,
-                isAdult: w.isAdult,
-                tags: w.tags || []
-              };
-            }
-
-            COMMUNITY_PRESETS_LIST.push({
-              key: key,
-              title: w.title.trim(),
-              imgUrl: w.imageUrl.trim(),
-              author: author,
-              contributedAt: itemTime,
-              genre: w.genre || '',
-              publishDay: w.publishDay || '',
-              isEnd: w.isEnd,
-              isAdult: w.isAdult,
-              tags: w.tags || []
-            });
-          }
-        });
-      });
-
-      // 등록 시간 오름차순(최초 등록자가 최상단)으로 후보 목록 정렬
-      COMMUNITY_PRESETS_LIST.sort((a, b) => a.contributedAt - b.contributedAt);
-      console.log(`[집단지성 썸네일] 최초 등록자 우선 정렬 완료: 고유 ${Object.keys(COMMUNITY_PRESETS).length}편, 총 이미지 후보 ${COMMUNITY_PRESETS_LIST.length}개`);
-    }
-  } catch (err) {
-    console.warn("Community thumbnails load error:", err);
-  }
-}
-
 function contributeThumbnail(title, imageUrl) {
   if (!title || !imageUrl) return;
   const cleanKey = title.toLowerCase().replace(/\s+/g, '');
@@ -1924,72 +1899,6 @@ function contributeThumbnail(title, imageUrl) {
     COMMUNITY_PRESETS_LIST[existingIdx] = listEntry;
   } else {
     COMMUNITY_PRESETS_LIST.unshift(listEntry);
-  }
-}
-
-async function loadPublicLists(showToast) {
-  if (!spClient) return;
-  try {
-    const { data, error } = await spClient
-      .from('user_webtoons')
-      .select('*')
-      .order('updated_at', { ascending: false });
-
-    if (error) throw error;
-
-    // 관리자(ADMIN_EMAIL) 계정의 _admin_titles 맵 확인 (관리자가 지정한 커스텀 이름)
-    let adminTitles = {};
-    const adminRow = (data || []).find(r => r.user_email === ADMIN_EMAIL);
-    if (adminRow && adminRow.data && adminRow.data._admin_titles) {
-      adminTitles = adminRow.data._admin_titles;
-    }
-
-    // 다른 사용자들이 등록한 모든 웹툰 이미지 및 메타데이터 집단지성 풀(COMMUNITY_PRESETS)에 즉시 자동 등록
-    (data || []).forEach(row => {
-      const list = row.data?.webtoons || [];
-      const author = row.user_name || (row.user_email ? maskEmail(row.user_email) : '다른 사용자');
-      list.forEach(w => {
-        if (w.title && w.imageUrl) {
-          const key = w.title.toLowerCase().replace(/\s+/g, '');
-          if (!COMMUNITY_PRESETS[key]) {
-            COMMUNITY_PRESETS[key] = {
-              title: w.title.trim(),
-              imgUrl: w.imageUrl.trim(),
-              isCommunity: true,
-              author: author,
-              genre: w.genre || '',
-              publishDay: w.publishDay || '',
-              isEnd: w.isEnd,
-              isAdult: w.isAdult,
-              tags: w.tags || []
-            };
-          }
-        }
-      });
-    });
-
-    const bannedWebtoons = adminRow?.data?._banned_webtoons || [];
-    publicLists = (data || []).filter(item => {
-      return item.is_shared === true || (item.data && item.data._is_shared === true);
-    }).map(item => {
-      if (item.data && item.data.webtoons) {
-        item.data.webtoons = item.data.webtoons.filter(w => 
-          !bannedWebtoons.some(b => b.userId === item.user_id && b.wtId === w.id)
-        );
-        // ★ 타 사용자의 웹툰들도 모두 공식 메타데이터 및 스마트 추론으로 전역 인메모리 마이그레이션!
-        migrateWebtoonsArray(item.data.webtoons);
-      }
-      const assigned = adminTitles[item.user_id];
-      const ownTitle = item.share_title || (item.data && item.data._share_title);
-      item._effective_title = assigned || ownTitle || '';
-      return item;
-    });
-
-    updatePublicCountBadges();
-    renderPublicListsModal();
-    if (showToast) toast("공개 리스트 목록을 새로고침했습니다! 🔄");
-  } catch (err) {
-    console.warn("Public lists load error:", err);
   }
 }
 
