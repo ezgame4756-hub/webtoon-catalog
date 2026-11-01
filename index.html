@@ -308,6 +308,26 @@ input:checked + .slider:before {
 }
 .wt-card:hover .cover img { transform: scale(1.08); }
 
+.card-ov {
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 15, 25, 0.75);
+  backdrop-filter: blur(2px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 5;
+}
+.wt-card:hover .card-ov {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .preview-box {
   transition: all 0.2s ease;
   cursor: pointer;
@@ -324,39 +344,6 @@ input:checked + .slider:before {
   background: rgba(16, 185, 129, 0.15) !important;
   transform: scale(1.02);
 }
-
-.card-ov {
-  position: absolute;
-  inset: 0;
-  background: rgba(11, 15, 25, 0.75);
-  backdrop-filter: blur(2px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  z-index: 5;
-}
-.wt-card:hover .preview-box {
-  transition: all 0.2s ease;
-  cursor: pointer;
-}
-.preview-box:hover {
-  border-color: var(--primary-color) !important;
-  transform: translateY(-1px);
-}
-.preview-box:hover #previewOverlay {
-  display: flex !important;
-}
-.preview-box.drag-active {
-  border-color: #10b981 !important;
-  background: rgba(16, 185, 129, 0.15) !important;
-  transform: scale(1.02);
-}
-
-.card-ov { opacity: 1; }
 
 .cover-ph {
   display: flex;
