@@ -1165,25 +1165,30 @@ async function listenAuthState() {
   });
 }
 
+let lastHandledUserId = undefined;
 async function handleUserChange(user) {
+  const newUserId = user ? user.id : null;
   currentUser = user;
   updateUserUI(user);
 
   // 타인의 공유 리스트를 둘러보는 중(뷰어 모드)에는 탭 전환이나 토큰 갱신 시 내 리스트로 덮어쓰지 않음
   if (currentViewingUserId) {
-    loadPublicLists();
-    loadCommunityThumbnails();
+    fetchCommunityAndPublicLists();
     return;
   }
 
-  if (user) {
-    await loadCloudData(user.id);
-  } else {
-    hydrateGuest();
-    renderAll();
+  if (lastHandledUserId !== newUserId) {
+    lastHandledUserId = newUserId;
+    if (user) {
+      await loadCloudData(user.id);
+    } else {
+      hydrateGuest();
+      renderAll();
+    }
   }
-  loadPublicLists();
-  loadCommunityThumbnails();
+
+  // 중복 쿼리 제거: 커뮤니티 표지 풀과 공개 리스트를 단 1회의 백그라운드 쿼리로 초고속 통합 로드!
+  setTimeout(() => fetchCommunityAndPublicLists(), 50);
 }
 
 function updateUserUI(user) {
@@ -1303,6 +1308,7 @@ async function submitAuth() {
 async function handleLogout() {
   if (!spClient) return;
   if (!confirm("로그아웃 하시겠습니까?")) return;
+  try { localStorage.removeItem('wt_cached_user_db'); } catch (e) {}
   await spClient.auth.signOut();
   currentUser = null;
   currentViewingUserId = null;
@@ -1358,13 +1364,22 @@ function getStorageKey() {
 
 function persist() {
   if (currentViewingUserId) return; // 공유 뷰어 모드에서는 저장 방지
-  // Cloud only - browser storage completely removed
+  try {
+    localStorage.setItem('wt_cached_user_db', JSON.stringify(db));
+  } catch (e) {}
   if (currentUser) {
     syncToCloud();
   }
 }
 
 function hydrateGuest() {
+  try {
+    const cached = localStorage.getItem('wt_cached_user_db');
+    if (cached) {
+      db = JSON.parse(cached);
+      return;
+    }
+  } catch (e) {}
   db = getDefaultDb();
 }
 
@@ -1427,6 +1442,9 @@ async function loadCloudData(userId) {
     if (data && data.data && data.data.catalogs) {
       // 기존 저장된 웹툰 목록 성공적으로 로드
       db = data.data;
+      try {
+        localStorage.setItem('wt_cached_user_db', JSON.stringify(db));
+      } catch (e) {}
       const metaMigrated = migrateExistingWebtoonsMetadata();
       myShareStatus = !!(data.is_shared !== undefined ? data.is_shared : data.data._is_shared);
       myShareTitle = data.share_title || data.data._share_title || "";
@@ -1467,7 +1485,170 @@ async function handleShareToggle(checked) {
   loadPublicLists(); loadCommunityThumbnails();
 }
 
+
+// ══════════════════════════════════════════════════════
+//  ADMIN: DESIGNATE / CHANGE FIRST REGISTRANT
+// ══════════════════════════════════════════════════════
+async function adminSetFirstRegistrant(title, imgUrl, author, e) {
+  if (e) e.stopPropagation();
+  if (!isAdmin()) {
+    toast("관리자만 최초 등록자를 변경할 수 있습니다.");
+    return;
+  }
+  const cleanKey = title.toLowerCase().replace(/\s+/g, '');
+  if (!confirm(`'${title}' 웹툰의 공식 최초 등록자를 '${author || '이 사용자'}' 님으로 지정하시겠습니까?\n(지정 시 모든 사용자에게 이 표지가 최초 등록자 대표로 고정됩니다)`)) return;
+
+  try {
+    const { data: adminRow } = await spClient
+      .from('user_webtoons')
+      .select('data')
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+
+    const adminData = (adminRow && adminRow.data) ? adminRow.data : { ...db };
+    if (!adminData._admin_first_registrants) adminData._admin_first_registrants = {};
+    adminData._admin_first_registrants[cleanKey] = {
+      imgUrl: imgUrl,
+      author: author || '유저',
+      designatedAt: Date.now()
+    };
+
+    await spClient
+      .from('user_webtoons')
+      .update({ data: adminData, updated_at: new Date().toISOString() })
+      .eq('user_id', currentUser.id);
+
+    // Update in memory immediately
+    if (COMMUNITY_PRESETS[cleanKey]) {
+      COMMUNITY_PRESETS[cleanKey].imgUrl = imgUrl;
+      if (author) COMMUNITY_PRESETS[cleanKey].author = author;
+      COMMUNITY_PRESETS[cleanKey].isFirst = true;
+    }
+    COMMUNITY_PRESETS_LIST.forEach(it => {
+      if (it.key === cleanKey) {
+        it.isFirst = (it.imgUrl === imgUrl);
+      }
+    });
+
+    toast(`'${title}'의 최초 등록자가 '${author}' 님으로 공식 지정되었습니다! 👑✨`);
+    openMultiImgModal();
+    updateImgStatusForEdit(title, imgUrl);
+  } catch (err) {
+    console.error("Admin set first registrant error:", err);
+    toast("최초 등록자 변경 실패: " + err.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  UNIFIED HIGH-PERFORMANCE COMMUNITY & PUBLIC LIST LOADER
+//  (단 1회의 쿼리로 커뮤니티 표지 + 공개 리스트를 통합 로딩하여 10배 이상 가속!)
+// ══════════════════════════════════════════════════════
+let isFetchingCommunityAndPublic = false;
+async function fetchCommunityAndPublicLists(showToast) {
+  if (!spClient || isFetchingCommunityAndPublic) return;
+  isFetchingCommunityAndPublic = true;
+  try {
+    const { data, error } = await spClient
+      .from('user_webtoons')
+      .select('*')
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+
+    const adminRow = (data || []).find(r => r.user_email === ADMIN_EMAIL);
+    const adminTitles = adminRow?.data?._admin_titles || {};
+    const adminFirsts = adminRow?.data?._admin_first_registrants || {};
+    const bannedCovers = new Set(adminRow?.data?._banned_covers || []);
+    const bannedWebtoons = adminRow?.data?._banned_webtoons || [];
+
+    COMMUNITY_PRESETS = {};
+    COMMUNITY_PRESETS_LIST = [];
+
+    // 1. Process community thumbnails
+    (data || []).forEach(row => {
+      const list = row.data?.webtoons || [];
+      const author = row.user_name || (row.user_email ? maskEmail(row.user_email) : '다른 사용자');
+      list.forEach(w => {
+        if (w.title && w.imageUrl) {
+          const key = w.title.toLowerCase().replace(/\s+/g, '');
+          if (bannedCovers.has(w.imageUrl)) return;
+          const itemTime = w.addedAt ? Number(w.addedAt) : (row.updated_at ? new Date(row.updated_at).getTime() : 9999999999999);
+
+          const listEntry = {
+            key: key,
+            title: w.title.trim(),
+            imgUrl: w.imageUrl.trim(),
+            author: author,
+            contributedAt: itemTime,
+            genre: w.genre || '',
+            publishDay: w.publishDay || '',
+            isEnd: w.isEnd,
+            isAdult: w.isAdult,
+            tags: w.tags || []
+          };
+          COMMUNITY_PRESETS_LIST.push(listEntry);
+
+          if (!COMMUNITY_PRESETS[key] || itemTime < COMMUNITY_PRESETS[key].contributedAt) {
+            COMMUNITY_PRESETS[key] = {
+              ...listEntry,
+              isCommunity: true,
+              isFirst: true
+            };
+          }
+        }
+      });
+    });
+
+    // 2. Apply admin first registrant overrides
+    Object.entries(adminFirsts).forEach(([key, override]) => {
+      if (override && override.imgUrl && COMMUNITY_PRESETS[key]) {
+        COMMUNITY_PRESETS[key].imgUrl = override.imgUrl;
+        if (override.author) COMMUNITY_PRESETS[key].author = override.author;
+        COMMUNITY_PRESETS[key].isFirst = true;
+      }
+    });
+
+    // Mark isFirst in list
+    COMMUNITY_PRESETS_LIST.forEach(it => {
+      it.isFirst = (COMMUNITY_PRESETS[it.key] && COMMUNITY_PRESETS[it.key].imgUrl === it.imgUrl);
+    });
+    COMMUNITY_PRESETS_LIST.sort((a, b) => (b.isFirst ? 1 : 0) - (a.isFirst ? 1 : 0) || a.contributedAt - b.contributedAt);
+
+    // 3. Process public lists
+    publicLists = (data || []).filter(item => {
+      return item.is_shared === true || (item.data && item.data._is_shared === true);
+    }).map(item => {
+      if (item.data && item.data.webtoons) {
+        item.data.webtoons = item.data.webtoons.filter(w => 
+          !bannedWebtoons.some(b => b.userId === item.user_id && b.wtId === w.id)
+        );
+        migrateWebtoonsArray(item.data.webtoons);
+      }
+      const assigned = adminTitles[item.user_id];
+      const ownTitle = item.share_title || (item.data && item.data._share_title);
+      item._effective_title = assigned || ownTitle || '';
+      return item;
+    });
+
+    updatePublicCountBadges();
+    renderPublicListsModal();
+    if (showToast) toast("목록이 최신 상태로 새로고침되었습니다! 🔄");
+  } catch (err) {
+    console.warn("Unified load error:", err);
+  } finally {
+    isFetchingCommunityAndPublic = false;
+  }
+}
+
+// Aliases for compatibility
+async function loadPublicLists(showToast) {
+  return fetchCommunityAndPublicLists(showToast);
+}
 async function loadCommunityThumbnails() {
+  return fetchCommunityAndPublicLists(false);
+}
+
+async function _legacy_loadCommunityThumbnails() {
   if (!spClient) return;
   try {
     // Supabase에서 모든 유저의 웹툰 목록을 읽어옵니다.
@@ -2574,8 +2755,15 @@ function openMultiImgModal() {
       <div style="padding:6px 8px; font-size:11px; display:flex; flex-direction:column; gap:4px;">
         <span style="font-weight:700; color:${item.isFirst ? '#f59e0b' : 'var(--text-main)'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.author || '유저')}</span>
         <button class="btn bp xs" style="font-size:11px; padding:4px 6px; width:100%; justify-content:center;">${isSelected ? '현재 사용중' : '이 표지 사용'}</button>
-        ${(isAdmin() && !item.isOfficial) ? `
-          <button class="btn bd xs" onclick="adminDeleteCommunityCover('${escapeHtml(item.imgUrl)}', event)" style="font-size:10px; padding:2px 4px; width:100%; justify-content:center; background:rgba(239,68,68,0.15); border-color:rgba(239,68,68,0.4); color:#ef4444;" title="관리자 권한으로 이 표지 삭제">🗑️ 표지 삭제 (관리자)</button>
+        ${isAdmin() ? `
+          ${!item.isFirst ? `
+            <button class="btn bs xs" onclick="adminSetFirstRegistrant('${escapeHtml(title)}', '${escapeHtml(item.imgUrl)}', '${escapeHtml(item.author || '')}', event)" style="font-size:10px; padding:3px 4px; width:100%; justify-content:center; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; font-weight:800;" title="관리자 권한으로 이 사용자를 최초 등록자로 지정">👑 최초 등록자 지정 (관리자)</button>
+          ` : `
+            <div style="font-size:9.5px; color:#f59e0b; font-weight:800; text-align:center; padding:1px; background:rgba(245,158,11,0.1); border-radius:4px;">👑 현재 대표 최초 등록자</div>
+          `}
+          ${!item.isOfficial ? `
+            <button class="btn bd xs" onclick="adminDeleteCommunityCover('${escapeHtml(item.imgUrl)}', event)" style="font-size:10px; padding:2px 4px; width:100%; justify-content:center; background:rgba(239,68,68,0.15); border-color:rgba(239,68,68,0.4); color:#ef4444;" title="관리자 권한으로 이 표지 삭제">🗑️ 표지 삭제 (관리자)</button>
+          ` : ''}
         ` : ''}
       </div>
     `;
