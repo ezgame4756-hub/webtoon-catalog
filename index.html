@@ -1498,7 +1498,12 @@ async function loadCommunityThumbnails() {
                 isCommunity: true,
                 author: author,
                 contributedAt: itemTime,
-                isFirst: true
+                isFirst: true,
+                genre: w.genre || '',
+                publishDay: w.publishDay || '',
+                isEnd: w.isEnd,
+                isAdult: w.isAdult,
+                tags: w.tags || []
               };
             }
 
@@ -1507,7 +1512,12 @@ async function loadCommunityThumbnails() {
               title: w.title.trim(),
               imgUrl: w.imageUrl.trim(),
               author: author,
-              contributedAt: itemTime
+              contributedAt: itemTime,
+              genre: w.genre || '',
+              publishDay: w.publishDay || '',
+              isEnd: w.isEnd,
+              isAdult: w.isAdult,
+              tags: w.tags || []
             });
           }
         });
@@ -1550,7 +1560,7 @@ async function loadPublicLists(showToast) {
       adminTitles = adminRow.data._admin_titles;
     }
 
-    // 다른 사용자들이 등록한 모든 웹툰 이미지 집단지성 풀(COMMUNITY_PRESETS)에 즉시 자동 등록
+    // 다른 사용자들이 등록한 모든 웹툰 이미지 및 메타데이터 집단지성 풀(COMMUNITY_PRESETS)에 즉시 자동 등록
     (data || []).forEach(row => {
       const list = row.data?.webtoons || [];
       const author = row.user_name || (row.user_email ? maskEmail(row.user_email) : '다른 사용자');
@@ -1562,7 +1572,12 @@ async function loadPublicLists(showToast) {
               title: w.title.trim(),
               imgUrl: w.imageUrl.trim(),
               isCommunity: true,
-              author: author
+              author: author,
+              genre: w.genre || '',
+              publishDay: w.publishDay || '',
+              isEnd: w.isEnd,
+              isAdult: w.isAdult,
+              tags: w.tags || []
             };
           }
         }
@@ -1577,6 +1592,8 @@ async function loadPublicLists(showToast) {
         item.data.webtoons = item.data.webtoons.filter(w => 
           !bannedWebtoons.some(b => b.userId === item.user_id && b.wtId === w.id)
         );
+        // ★ 타 사용자의 웹툰들도 모두 공식 메타데이터 및 스마트 추론으로 전역 인메모리 마이그레이션!
+        migrateWebtoonsArray(item.data.webtoons);
       }
       const assigned = adminTitles[item.user_id];
       const ownTitle = item.share_title || (item.data && item.data._share_title);
@@ -1754,7 +1771,8 @@ async function viewSharedUser(userId) {
   }
 
   currentViewingUserId = userId;
-  db = target.data;
+  db = JSON.parse(JSON.stringify(target.data));
+  migrateExistingWebtoonsMetadata(); // 타인 리스트 열람 시에도 장르/요일/성인/완결 뱃지 100% 즉시 표시!
 
   const title = target._effective_title || (maskEmail(target.user_email) + ' 님의 컬렉션');
   document.getElementById('sharedBanner').style.display = 'flex';
@@ -2434,7 +2452,12 @@ function getAvailableImagesForTitle(title) {
       imgUrl: item.imgUrl,
       author: item.author,
       isFirst: true,
-      title: item.title
+      title: item.title,
+      genre: item.genre || '',
+      publishDay: item.publishDay || '',
+      isEnd: item.isEnd,
+      isAdult: item.isAdult,
+      tags: item.tags || []
     });
     seenUrls.add(item.imgUrl);
   }
@@ -2446,7 +2469,12 @@ function getAvailableImagesForTitle(title) {
         imgUrl: item.imgUrl,
         author: item.author,
         isFirst: false,
-        title: item.title
+        title: item.title,
+        genre: item.genre || '',
+        publishDay: item.publishDay || '',
+        isEnd: item.isEnd,
+        isAdult: item.isAdult,
+        tags: item.tags || []
       });
       seenUrls.add(item.imgUrl);
     }
@@ -2513,9 +2541,25 @@ function openMultiImgModal() {
     card.onclick = () => {
       setImageUrl(item.imgUrl);
       cl('multiImgMdl');
+
+      // 1. 공식 API에 정보가 있으면 공식 정보 자동 연동
+      const meta = applyMetaForTitle(title);
+
+      // 2. API에 없는 웹툰이면, 해당 표지를 올린 다른 사람의 정보(장르, 요일, 성인, 완결, 태그)를 그대로 자동 인용!
+      let adoptedOtherUser = false;
+      if (!meta && !item.isOfficial) {
+        if (item.genre) { document.getElementById('f_genre').value = item.genre; adoptedOtherUser = true; }
+        if (item.publishDay) { document.getElementById('f_day').value = item.publishDay; adoptedOtherUser = true; }
+        if (item.isEnd !== undefined) { document.getElementById('f_isEnd').value = item.isEnd ? 'true' : 'false'; adoptedOtherUser = true; }
+        if (item.isAdult !== undefined) { document.getElementById('f_isAdult').checked = !!item.isAdult; adoptedOtherUser = true; }
+        if (item.tags && item.tags.length && !document.getElementById('f_tags').value) {
+          document.getElementById('f_tags').value = item.tags.join(', ');
+        }
+      }
+
       const authorText = item.author ? ` (${escapeHtml(item.author)} 님)` : '';
       if (item.isOfficial) {
-        document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#10b981; font-weight:800;">✓ '${escapeHtml(title)}' 공식 이미지가 적용되었습니다! 🌟</span>`;
+        document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#10b981; font-weight:800;">✓ '${escapeHtml(title)}' 공식 이미지와 정보가 적용되었습니다! 🌟</span>`;
       } else if (item.isFirst) {
         document.getElementById('imgStatusMsg').innerHTML = `
           <div style="margin-top:8px; padding:10px 14px; background:linear-gradient(135deg, rgba(245,158,11,0.16) 0%, rgba(99,102,241,0.2) 100%); border:1.5px solid rgba(245,158,11,0.55); border-radius:12px; display:flex; align-items:center; gap:10px; box-shadow:0 4px 16px rgba(245,158,11,0.18);">
@@ -2526,16 +2570,20 @@ function openMultiImgModal() {
                 <span style="font-size:9.5px; background:#f59e0b; color:#000; font-weight:900; padding:1px 6px; border-radius:10px;">FIRST</span>
               </div>
               <div style="font-size:12px; color:var(--text-main); font-weight:700; line-height:1.4;">
-                <span style="color:#6366f1; font-weight:900;">${authorText}</span> 님이 최초로 발굴한 고화질 표지가 적용되었습니다! ✨
+                <span style="color:#6366f1; font-weight:900;">${authorText}</span> 님이 최초 등록한 고화질 표지와 정보가 자동 인용되었습니다! ✨
               </div>
             </div>
           </div>
         `;
       } else {
-        document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 다른 유저${authorText}의 표지가 선택되었습니다! 💡</span>`;
+        document.getElementById('imgStatusMsg').innerHTML = `<span style="color:#6366f1; font-weight:800;">✓ 다른 유저${authorText}의 표지와 정보가 선택되었습니다! 💡</span>`;
       }
       updateMultiImgButton(title);
-      toast("선택하신 표지가 적용되었습니다! 🖼️");
+      if (adoptedOtherUser) {
+        toast(`'${item.author || '유저'}' 님의 표지 및 등록 정보(장르/요일/성인)가 함께 인용되었습니다! 🖼️📋`);
+      } else {
+        toast("선택하신 표지와 정보가 적용되었습니다! 🖼️");
+      }
     };
 
     grid.appendChild(card);
@@ -2571,6 +2619,14 @@ function onTitleChange() {
   if (!matchedImg && COMMUNITY_PRESETS[clean]) {
     matchedImg = COMMUNITY_PRESETS[clean].imgUrl;
     isFromCommunity = true;
+    const comm = COMMUNITY_PRESETS[clean];
+    if (comm.genre) document.getElementById('f_genre').value = comm.genre;
+    if (comm.publishDay) document.getElementById('f_day').value = comm.publishDay;
+    if (comm.isEnd !== undefined) document.getElementById('f_isEnd').value = comm.isEnd ? 'true' : 'false';
+    if (comm.isAdult !== undefined) document.getElementById('f_isAdult').checked = !!comm.isAdult;
+    if (comm.tags && comm.tags.length && !document.getElementById('f_tags').value) {
+      document.getElementById('f_tags').value = comm.tags.join(', ');
+    }
   }
 
   if (matchedImg) {
@@ -2650,7 +2706,24 @@ function onTitleChange() {
 function selectPreset(title, imgUrl, isCommunity, author) {
   document.getElementById('f_title').value = title;
   setImageUrl(imgUrl);
-  applyMetaForTitle(title);
+  const meta = applyMetaForTitle(title);
+
+  // API에 없는 웹툰이면, 해당 커뮤니티 유저의 등록 정보(장르, 요일, 성인, 완결)를 그대로 자동 인용!
+  let adoptedComm = false;
+  if (!meta && isCommunity) {
+    const cleanNorm = title.trim().toLowerCase().replace(/\s+/g, '');
+    const comm = COMMUNITY_PRESETS[cleanNorm];
+    if (comm) {
+      if (comm.genre) { document.getElementById('f_genre').value = comm.genre; adoptedComm = true; }
+      if (comm.publishDay) { document.getElementById('f_day').value = comm.publishDay; adoptedComm = true; }
+      if (comm.isEnd !== undefined) { document.getElementById('f_isEnd').value = comm.isEnd ? 'true' : 'false'; adoptedComm = true; }
+      if (comm.isAdult !== undefined) { document.getElementById('f_isAdult').checked = !!comm.isAdult; adoptedComm = true; }
+      if (comm.tags && comm.tags.length && !document.getElementById('f_tags').value) {
+        document.getElementById('f_tags').value = comm.tags.join(', ');
+      }
+    }
+  }
+
   document.getElementById('titleSuggestBox').style.display = 'none';
   if (isCommunity) {
     const authorText = author ? ` (${author} 님)` : '';
@@ -2834,7 +2907,88 @@ function applyMetaForTitle(title) {
   return null;
 }
 
+function migrateWebtoonsArray(arr) {
+  if (!arr || !arr.length) return false;
+  let changed = false;
+  const KNOWN_GENRES = ['판타지', '액션', '무협', '드라마', '로맨스', '스릴러', '개그', '일상', '학원', '스포츠'];
+
+  arr.forEach(w => {
+    const cleanNorm = (w.title || '').toLowerCase().replace(/\s+/g, '');
+    let found = null;
+    if (WEBTOON_METADATA[w.title]) {
+      found = WEBTOON_METADATA[w.title];
+    } else {
+      for (const [k, v] of Object.entries(WEBTOON_METADATA)) {
+        if (k.toLowerCase().replace(/\s+/g, '') === cleanNorm) {
+          found = v;
+          break;
+        }
+      }
+    }
+
+    if (found) {
+      const realGenre = found.genre || found.g || '';
+      const realDay = found.day || found.d || '';
+      const realEnd = (found.isEnd !== undefined) ? found.isEnd : (found.e === 1);
+      const realAdult = (found.adult !== undefined) ? found.adult : (found.a === 1);
+
+      if (realGenre && w.genre !== realGenre) { w.genre = realGenre; changed = true; }
+      if (realDay && w.publishDay !== realDay) { w.publishDay = realDay; changed = true; }
+      if (w.isEnd !== realEnd) { w.isEnd = realEnd; changed = true; }
+      if (w.isAdult !== realAdult) { w.isAdult = realAdult; changed = true; }
+    } else {
+      // 커뮤니티 프리셋에 등록된 정보가 있다면 이를 자동 인용
+      const comm = (typeof COMMUNITY_PRESETS !== 'undefined') ? COMMUNITY_PRESETS[cleanNorm] : null;
+      if (comm) {
+        if (!w.genre && comm.genre) { w.genre = comm.genre; changed = true; }
+        if (!w.publishDay && comm.publishDay) { w.publishDay = comm.publishDay; changed = true; }
+        if (w.isEnd === undefined && comm.isEnd !== undefined) { w.isEnd = comm.isEnd; changed = true; }
+        if (w.isAdult === undefined && comm.isAdult !== undefined) { w.isAdult = comm.isAdult; changed = true; }
+      }
+      // 태그 기반 스마트 장르 감지
+      if (!w.genre && w.tags && w.tags.length) {
+        for (const tag of w.tags) {
+          const tClean = tag.replace(/^[#]/, '').trim();
+          const match = KNOWN_GENRES.find(g => tClean.includes(g) || g.includes(tClean));
+          if (match) {
+            w.genre = match;
+            changed = true;
+            break;
+          }
+        }
+      }
+      if (w.isAdult === undefined) {
+        const titleAndTags = (w.title + ' ' + (w.tags || []).join(' ')).toLowerCase();
+        if (/19|성인|오나홀|야설|섹스|에로/.test(titleAndTags)) {
+          w.isAdult = true;
+          changed = true;
+        } else {
+          w.isAdult = false;
+        }
+      }
+      if (w.isEnd === undefined) {
+        w.isEnd = (w.chapter || '').includes('완결') || (w.tags || []).some(t => t.includes('완결'));
+        changed = true;
+      }
+      if (w.publishDay === undefined) {
+        w.publishDay = '';
+      }
+    }
+  });
+
+  return changed;
+}
+
 function migrateExistingWebtoonsMetadata() {
+  if (!db || !db.webtoons || !db.webtoons.length) return false;
+  const changed = migrateWebtoonsArray(db.webtoons);
+  if (changed && !currentViewingUserId) {
+    persist();
+  }
+  return changed;
+}
+
+function _unused_old_migrate() {
   if (!db || !db.webtoons || !db.webtoons.length) return false;
   let updatedCount = 0;
   const KNOWN_GENRES = ['판타지', '액션', '무협', '드라마', '로맨스', '스릴러', '개그', '일상', '학원', '스포츠'];
