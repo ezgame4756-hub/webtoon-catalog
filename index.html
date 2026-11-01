@@ -376,11 +376,25 @@ input:checked + .slider:before {
   border: 1px solid rgba(255,255,255,0.25);
   letter-spacing: -0.02em;
 }
+.t-S\+, .t-Splus {
+  background: linear-gradient(135deg, #ff0055 0%, #ff5252 50%, #f59e0b 100%);
+  color: #fff;
+  border: 1.5px solid #fbbf24;
+  box-shadow: 0 4px 12px rgba(255, 0, 85, 0.45);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  font-weight: 900;
+}
 .t-S { background: linear-gradient(135deg, #ff1b6b, #ff758c); color: #fff; }
 .t-A { background: linear-gradient(135deg, #7928ca, #ff0080); color: #fff; }
 .t-B { background: linear-gradient(135deg, #0070f3, #00dfd8); color: #fff; }
 .t-C { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
 .t-D { background: linear-gradient(135deg, #4b5563, #6b7280); color: #fff; }
+.t-F {
+  background: linear-gradient(135deg, #2b0909, #7f1d1d);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  font-weight: 900;
+}
 
 .ribbon {
   position: absolute;
@@ -886,14 +900,16 @@ input:focus, textarea:focus, select:focus {
 
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
       <div>
-        <label class="lbl">🏆 티어 등급 (S~D)</label>
+        <label class="lbl">🏆 티어 등급 (S+ ~ F)</label>
         <select id="f_tier">
           <option value="">미지정</option>
+          <option value="S+">👑 S+티어 (신계/초인생작)</option>
           <option value="S">🔥 S티어 (인생작)</option>
           <option value="A">✨ A티어 (명작)</option>
           <option value="B">👍 B티어 (수작)</option>
           <option value="C">👌 C티어 (평타)</option>
           <option value="D">💤 D티어 (하차고민)</option>
+          <option value="F">💀 F티어 (지뢰/최악)</option>
         </select>
       </div>
       <div>
@@ -1220,11 +1236,13 @@ const STATUS = {
 };
 
 const TIERS = [
-  { id:'S', label:'S티어', name:'🔥 S (인생작)', cls:'t-S' },
-  { id:'A', label:'A티어', name:'✨ A (명작)',   cls:'t-A' },
-  { id:'B', label:'B티어', name:'👍 B (수작)',   cls:'t-B' },
-  { id:'C', label:'C티어', name:'👌 C (평타)',   cls:'t-C' },
-  { id:'D', label:'D티어', name:'💤 D (하차고민)',cls:'t-D' },
+  { id:'S+', label:'S+티어', name:'👑 S+ (초인생작)', cls:'t-Splus', emoji:'👑' },
+  { id:'S',  label:'S티어',  name:'🔥 S (인생작)',   cls:'t-S',     emoji:'🔥' },
+  { id:'A',  label:'A티어',  name:'✨ A (명작)',     cls:'t-A',     emoji:'✨' },
+  { id:'B',  label:'B티어',  name:'👍 B (수작)',     cls:'t-B',     emoji:'👍' },
+  { id:'C',  label:'C티어',  name:'👌 C (평타)',     cls:'t-C',     emoji:'👌' },
+  { id:'D',  label:'D티어',  name:'💤 D (하차고민)',  cls:'t-D',     emoji:'💤' },
+  { id:'F',  label:'F티어',  name:'💀 F (지뢰/최악)', cls:'t-F',     emoji:'💀' },
 ];
 
 function getDefaultDb() {
@@ -2119,7 +2137,7 @@ function render() {
     );
   }
 
-  const tierWeight = { 'S': 5, 'A': 4, 'B': 3, 'C': 2, 'D': 1, '': 0 };
+  const tierWeight = { 'S+': 7, 'S': 6, 'A': 5, 'B': 4, 'C': 3, 'D': 2, 'F': 1, '': 0 };
   if (sort === 'tier') {
     const originalOrder = new Map(db.webtoons.map((item, i) => [item.id, i]));
     list.sort((a,b) => {
@@ -2158,7 +2176,8 @@ function createCard(w) {
   card.draggable = !currentViewingUserId;
 
   const s = STATUS[w.status] || STATUS.reading;
-  const tierHtml = w.tier ? `<div class="tier-badge t-${w.tier}">${w.tier}</div>` : '';
+  const tierCls = w.tier ? (w.tier === 'S+' ? 't-Splus' : `t-${w.tier}`) : '';
+  const tierHtml = w.tier ? `<div class="tier-badge ${tierCls}">${w.tier}</div>` : '';
   const stars = w.rating > 0 ? '⭐'.repeat(w.rating) : '';
 
   card.innerHTML = `
@@ -2846,7 +2865,7 @@ function moveWebtoonRank(id, direction, e) {
     );
   }
 
-  const tierWeight = { 'S': 5, 'A': 4, 'B': 3, 'C': 2, 'D': 1, '': 0 };
+  const tierWeight = { 'S+': 7, 'S': 6, 'A': 5, 'B': 4, 'C': 3, 'D': 2, 'F': 1, '': 0 };
   const originalOrder = new Map(db.webtoons.map((item, i) => [item.id, i]));
   if (sort === 'tier') {
     visibleList.sort((a,b) => {
@@ -2910,7 +2929,7 @@ function showDetail(id) {
           ? `<img src="${w.imageUrl}" referrerpolicy="no-referrer" style="width:100%; height:100%; object-fit:cover;" onerror="this.outerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;font-size:40px;\'>📖</div>'" />`
           : `<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:40px;">📖</div>`
         }
-        ${w.tier ? `<div class="tier-badge t-${w.tier}">${w.tier}</div>` : ''}
+        ${w.tier ? `<div class="tier-badge ${w.tier === 'S+' ? 't-Splus' : `t-${w.tier}`}">${w.tier}</div>` : ''}
       </div>
       <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center;">
         <h3 style="margin:0 0 10px; font-size:20px; font-weight:900; line-height:1.3; letter-spacing:-0.03em;">${escapeHtml(w.title)}</h3>
