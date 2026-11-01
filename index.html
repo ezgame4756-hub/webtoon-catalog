@@ -492,6 +492,23 @@ input:focus, textarea:focus, select:focus {
 }
 
 /* ── Public List Card in Modal ── */
+
+/* ── Public Lists Modal Scrollbar ── */
+#publicListsContainer::-webkit-scrollbar {
+  width: 6px;
+}
+#publicListsContainer::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+}
+#publicListsContainer::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 8px;
+}
+#publicListsContainer::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-color);
+}
+
 .public-card {
   background: var(--bg-hover);
   border: 1.5px solid var(--border-color);
@@ -728,14 +745,30 @@ input:focus, textarea:focus, select:focus {
     </div>
   </div>
 
-  <!-- Search in Public Lists -->
-  <div style="margin-bottom:14px; flex-shrink:0; position:relative;">
-    <input id="publicSearchQ" type="text" placeholder="리스트 이름 또는 작성자 검색..." style="padding:9px 14px 9px 36px; font-size:13.5px;" oninput="filterPublicLists()" />
-    <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); opacity:0.5; font-size:14px;">🔍</span>
+  <!-- Search & Sort Controls in Public Lists -->
+  <div style="display:flex; gap:10px; margin-bottom:12px; flex-shrink:0; flex-wrap:wrap;">
+    <div style="flex:1; min-width:200px; position:relative;">
+      <input id="publicSearchQ" type="text" placeholder="리스트 이름 또는 작성자 검색..." style="padding:9px 14px 9px 36px; font-size:13.5px;" oninput="filterPublicLists()" />
+      <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); opacity:0.5; font-size:14px;">🔍</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px;">
+      <select id="publicSortSel" onchange="filterPublicLists()" style="width:auto; padding:8px 12px; font-size:13px; font-weight:700; background:var(--bg-hover); border:1px solid var(--border-color); border-radius:10px; color:var(--text-main); cursor:pointer;">
+        <option value="recent">🕒 최근 업데이트 순</option>
+        <option value="count">📚 등록된 웹툰 많은 순</option>
+        <option value="title">🔤 가나다 순</option>
+        <option value="first">👑 최초 등록 순</option>
+      </select>
+    </div>
   </div>
 
-  <!-- Lists Container -->
-  <div id="publicListsContainer" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px; min-height:160px; padding-right:4px;">
+  <!-- Stats & Active Filter Info -->
+  <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--text-muted); font-weight:700; margin-bottom:10px; padding:0 4px; flex-shrink:0;">
+    <span>총 <span id="publicListTotalCount" style="color:var(--primary-color); font-weight:800;">0</span>명의 공개 리스트</span>
+    <span id="publicListActiveSortNotice" style="font-size:11.5px; color:var(--text-muted);">🕒 최근 업데이트 순 정렬 중</span>
+  </div>
+
+  <!-- Lists Container with smooth dedicated scrollbar -->
+  <div id="publicListsContainer" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px; min-height:180px; max-height:55vh; padding-right:6px;">
     <div style="padding:20px; text-align:center; color:var(--text-muted); font-size:13px;">불러오는 중...</div>
   </div>
 </div>
@@ -1519,29 +1552,77 @@ function maskEmail(email) {
 
 function openPublicListsModal() {
   toggleSidebar(false);
-  document.getElementById('publicSearchQ').value = '';
+  const qEl = document.getElementById('publicSearchQ');
+  if (qEl) qEl.value = '';
   renderPublicListsModal();
   document.getElementById('publicListsMdl').style.display = 'flex';
   loadPublicLists(false);
 }
 
 function filterPublicLists() {
-  const q = document.getElementById('publicSearchQ').value.toLowerCase().trim();
-  renderPublicListsModal(q);
+  const q = document.getElementById('publicSearchQ') ? document.getElementById('publicSearchQ').value.toLowerCase().trim() : '';
+  const sort = document.getElementById('publicSortSel') ? document.getElementById('publicSortSel').value : 'recent';
+  renderPublicListsModal(q, sort);
 }
 
-function renderPublicListsModal(query) {
+function renderPublicListsModal(query, sortType) {
   const container = document.getElementById('publicListsContainer');
   if (!container) return;
   container.innerHTML = '';
 
+  const sortSel = document.getElementById('publicSortSel');
+  if (sortSel && sortType) sortSel.value = sortType;
+  const currentSort = sortSel ? sortSel.value : 'recent';
+
   let list = [...publicLists];
   if (query) {
     list = list.filter(item => {
-      const title = (item.share_title || (item.data && item.data._share_title) || '').toLowerCase();
+      const title = (item._effective_title || item.share_title || (item.data && item.data._share_title) || '').toLowerCase();
       const email = (item.user_email || '').toLowerCase();
-      return title.includes(query) || email.includes(query);
+      const name = (item.user_name || '').toLowerCase();
+      return title.includes(query) || email.includes(query) || name.includes(query);
     });
+  }
+
+  // Calculate helper metadata for sorting
+  list.forEach(item => {
+    const webtoons = (item.data && item.data.webtoons) ? item.data.webtoons : [];
+    item._count = webtoons.length;
+    item._updatedTime = item.updated_at ? new Date(item.updated_at).getTime() : 0;
+
+    // Earliest addedAt or updated_at
+    const addedAts = webtoons.map(w => Number(w.addedAt)).filter(t => !isNaN(t) && t > 0);
+    item._firstTime = addedAts.length ? Math.min(...addedAts) : (item._updatedTime || 9999999999999);
+    item._displayName = item._effective_title || (item.user_name ? `${item.user_name} 님의 컬렉션` : (maskEmail(item.user_email) + ' 님의 컬렉션'));
+  });
+
+  // Sorting
+  if (currentSort === 'count') {
+    // 1. 등록된 웹툰 많은 순
+    list.sort((a, b) => (b._count - a._count) || (b._updatedTime - a._updatedTime));
+  } else if (currentSort === 'title') {
+    // 2. 가나다 순
+    list.sort((a, b) => a._displayName.localeCompare(b._displayName, 'ko'));
+  } else if (currentSort === 'first') {
+    // 3. 최초 등록 순 (가장 먼저 등록한 사용자 순)
+    list.sort((a, b) => a._firstTime - b._firstTime);
+  } else {
+    // 4. 최근 업데이트 순 (기본값)
+    list.sort((a, b) => b._updatedTime - a._updatedTime);
+  }
+
+  const countEl = document.getElementById('publicListTotalCount');
+  if (countEl) countEl.textContent = list.length;
+
+  const noticeEl = document.getElementById('publicListActiveSortNotice');
+  if (noticeEl) {
+    const sortLabels = {
+      recent: '🕒 최근 업데이트 순',
+      count: '📚 등록된 웹툰 많은 순',
+      title: '🔤 가나다 순',
+      first: '👑 최초 등록 순'
+    };
+    noticeEl.textContent = `${sortLabels[currentSort] || ''} 정렬 중`;
   }
 
   if (!list.length) {
@@ -1555,26 +1636,30 @@ function renderPublicListsModal(query) {
     return;
   }
 
-  list.forEach(item => {
+  list.forEach((item, idx) => {
     const isMe = currentUser && currentUser.id === item.user_id;
-    const title = item._effective_title || (maskEmail(item.user_email) + ' 님의 컬렉션');
-    const count = (item.data && item.data.webtoons) ? item.data.webtoons.length : 0;
+    const title = item._displayName;
+    const count = item._count;
     const dateStr = item.updated_at ? new Date(item.updated_at).toLocaleDateString('ko-KR') : '';
+    const firstDateStr = (item._firstTime && item._firstTime < 9000000000000) ? new Date(item._firstTime).toLocaleDateString('ko-KR') : '';
 
     const card = document.createElement('div');
     card.className = 'public-card';
     card.innerHTML = `
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
         <div style="flex:1; min-width:0;">
-          <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+          <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px; flex-wrap:wrap;">
             <span style="font-size:15px; font-weight:800; color:var(--text-main); letter-spacing:-0.02em;">${escapeHtml(title)}</span>
             ${isMe ? '<span style="font-size:10.5px; background:rgba(99,102,241,0.18); color:var(--primary-color); padding:1px 6px; border-radius:4px; font-weight:800;">내 리스트</span>' : ''}
+            ${(currentSort === 'first' && idx === 0) ? '<span style="font-size:10.5px; background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); padding:1px 6px; border-radius:4px; font-weight:900;">👑 최초 1호</span>' : ''}
+            ${(currentSort === 'count' && idx === 0 && count > 0) ? '<span style="font-size:10.5px; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); padding:1px 6px; border-radius:4px; font-weight:900;">🏆 최다 등록 1위</span>' : ''}
           </div>
-          <div style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:8px; font-weight:500;">
+          <div style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:8px; font-weight:500; flex-wrap:wrap;">
             <span>👤 ${escapeHtml(maskEmail(item.user_email))}</span>
             <span>•</span>
-            <span style="color:var(--text-main); font-weight:700;">📚 총 ${count}편</span>
-            ${dateStr ? `<span>•</span><span>🕒 ${dateStr}</span>` : ''}
+            <span style="color:${currentSort === 'count' ? 'var(--primary-color)' : 'var(--text-main)'}; font-weight:800;">📚 총 ${count}편</span>
+            ${dateStr ? `<span>•</span><span>🕒 최근 수정: ${dateStr}</span>` : ''}
+            ${(currentSort === 'first' && firstDateStr) ? `<span>•</span><span style="color:#f59e0b; font-weight:700;">📅 가입/등록: ${firstDateStr}</span>` : ''}
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
