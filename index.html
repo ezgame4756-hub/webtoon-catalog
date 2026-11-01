@@ -308,6 +308,23 @@ input:checked + .slider:before {
 }
 .wt-card:hover .cover img { transform: scale(1.08); }
 
+.preview-box {
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+.preview-box:hover {
+  border-color: var(--primary-color) !important;
+  transform: translateY(-1px);
+}
+.preview-box:hover #previewOverlay {
+  display: flex !important;
+}
+.preview-box.drag-active {
+  border-color: #10b981 !important;
+  background: rgba(16, 185, 129, 0.15) !important;
+  transform: scale(1.02);
+}
+
 .card-ov {
   position: absolute;
   inset: 0;
@@ -322,7 +339,24 @@ input:checked + .slider:before {
   transition: opacity 0.2s ease;
   z-index: 5;
 }
-.wt-card:hover .card-ov { opacity: 1; }
+.wt-card:hover .preview-box {
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+.preview-box:hover {
+  border-color: var(--primary-color) !important;
+  transform: translateY(-1px);
+}
+.preview-box:hover #previewOverlay {
+  display: flex !important;
+}
+.preview-box.drag-active {
+  border-color: #10b981 !important;
+  background: rgba(16, 185, 129, 0.15) !important;
+  transform: scale(1.02);
+}
+
+.card-ov { opacity: 1; }
 
 .cover-ph {
   display: flex;
@@ -822,11 +856,15 @@ input:focus, textarea:focus, select:focus {
   </div>
 
   <div style="display:flex; gap:16px; margin-bottom:16px;">
-    <div style="width:110px; height:155px; border-radius:12px; overflow:hidden; border:1.5px solid var(--border-color); background:var(--bg-hover); display:flex; flex-direction:column; align-items:center; justify-content:center; flex-shrink:0; position:relative;">
+    <div id="previewBox" class="preview-box" onclick="triggerFileInput()" style="width:110px; height:155px; border-radius:12px; overflow:hidden; border:1.5px dashed var(--border-color); background:var(--bg-hover); display:flex; flex-direction:column; align-items:center; justify-content:center; flex-shrink:0; position:relative; user-select:none;" title="클릭하거나 이미지 파일을 여기로 드래그하여 첨부">
       <img id="previewImg" src="" referrerpolicy="no-referrer" style="width:100%; height:100%; object-fit:cover; display:none;" onerror="onImgError()" />
       <div id="previewPlaceholder" style="text-align:center; color:var(--text-muted); padding:8px; font-size:11px;">
-        <div style="font-size:26px; margin-bottom:4px;">🖼️</div>
-        <span>표지 미리보기</span>
+        <div style="font-size:26px; margin-bottom:4px;">📁</div>
+        <span style="font-weight:700; color:var(--primary-color);">파일 첨부</span>
+        <div style="font-size:9.5px; margin-top:2px; color:var(--text-muted);">(클릭 / 드래그)</div>
+      </div>
+      <div id="previewOverlay" style="position:absolute; inset:0; background:rgba(0,0,0,0.6); display:none; align-items:center; justify-content:center; color:#fff; font-size:11px; font-weight:700; backdrop-filter:blur(2px);">
+        📷 파일 변경
       </div>
     </div>
 
@@ -845,14 +883,17 @@ input:focus, textarea:focus, select:focus {
 
   <div style="display:flex; flex-direction:column; gap:14px;">
     <div>
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-        <label class="lbl" style="margin:0;">커버 이미지 URL (자동 매칭)</label>
-        <div style="display:flex; gap:6px;">
-          <button id="multiImgBtn" type="button" class="btn bg_ xs" onclick="openMultiImgModal()" style="display:none; color:#6366f1; font-weight:800; border:1px solid rgba(99,102,241,0.3); background:rgba(99,102,241,0.08); padding:3px 8px;">🖼️ 다른 이미지 선택 (<span id="multiImgCount">0</span>)</button>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
+        <label class="lbl" style="margin:0;">커버 이미지</label>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <input type="file" id="f_imgFile" accept="image/*" style="display:none;" onchange="handleImageFileUpload(event)" />
+          <button id="multiImgBtn" type="button" class="btn bg_ xs" onclick="openMultiImgModal()" style="display:none; color:#6366f1; font-weight:800; border:1px solid rgba(99,102,241,0.3); background:rgba(99,102,241,0.08); padding:3px 8px;">🖼️ 다른 이미지 (<span id="multiImgCount">0</span>)</button>
+          <button type="button" class="btn bg_ xs" onclick="triggerFileInput()" style="color:#10b981; font-weight:700; border:1px solid rgba(16,185,129,0.3); background:rgba(16,185,129,0.08); padding:3px 8px;">📁 파일 업로드</button>
           <button type="button" class="btn bg_ xs" onclick="openExtSearch()" style="color:var(--primary-color); font-weight:700;">🔍 웹에서 찾기</button>
+          <button id="clearImgBtn" type="button" class="btn bd xs" onclick="clearCoverImage()" style="display:none; font-weight:700; padding:3px 8px;" title="선택한 이미지 제거">✕ 초기화</button>
         </div>
       </div>
-      <input id="f_imgUrl" type="url" placeholder="제목 입력 시 공식 썸네일이 자동 입력됩니다" oninput="onImgUrlChange()" />
+      <input id="f_imgUrl" type="text" placeholder="웹 링크를 입력하거나 [📁 파일 업로드]로 내 사진을 직접 첨부하세요" oninput="onImgUrlChange()" />
       <div id="imgStatusMsg" style="font-size:11px; color:var(--text-muted); margin-top:4px;"></div>
     </div>
 
@@ -929,10 +970,15 @@ input:focus, textarea:focus, select:focus {
   
   <div id="multiImgGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(110px, 1fr)); gap:12px; overflow-y:auto; flex:1; max-height:55vh; padding:6px 2px;"></div>
 
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding-top:12px; border-top:1px solid var(--border-color); font-size:12px;">
-    <button class="btn bg_ sm" onclick="cl('multiImgMdl'); openExtSearch();" style="color:var(--primary-color); font-weight:700;">
-      🔍 웹에서 직접 찾기
-    </button>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding-top:12px; border-top:1px solid var(--border-color); font-size:12px; flex-wrap:wrap; gap:8px;">
+    <div style="display:flex; gap:6px;">
+      <button class="btn bg_ sm" onclick="cl('multiImgMdl'); triggerFileInput();" style="color:#10b981; font-weight:700; border:1px solid rgba(16,185,129,0.3); background:rgba(16,185,129,0.08);">
+        📁 내 파일 올리기
+      </button>
+      <button class="btn bg_ sm" onclick="cl('multiImgMdl'); openExtSearch();" style="color:var(--primary-color); font-weight:700;">
+        🔍 웹에서 찾기
+      </button>
+    </div>
     <button class="btn bs sm" onclick="cl('multiImgMdl'); document.getElementById('f_imgUrl').focus();">
       직접 URL 입력하기
     </button>
@@ -1100,6 +1146,7 @@ let authMode = 'login';
 
 function openAuthModal() {
   if (!spClient) initSupabase();
+initPreviewDropzone();
   if (!spClient) {
     toast("Supabase 서버 연결을 확인해주세요.");
     openConfigModal();
@@ -2466,18 +2513,146 @@ function selectPreset(title, imgUrl, isCommunity, author) {
   updateMultiImgButton(title);
 }
 
+
+// ══════════════════════════════════════════════════════
+//  LOCAL IMAGE FILE UPLOAD & CANVAS COMPRESSION
+// ══════════════════════════════════════════════════════
+function triggerFileInput() {
+  const fileInput = document.getElementById('f_imgFile');
+  if (fileInput) {
+    fileInput.value = '';
+    fileInput.click();
+  }
+}
+
+function handleImageFileUpload(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  processImageFile(file);
+}
+
+function processImageFile(file) {
+  if (!file.type || !file.type.startsWith('image/')) {
+    toast('이미지 파일(PNG, JPG, WEBP 등)만 업로드할 수 있습니다.');
+    return;
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    toast('25MB 이하의 이미지 파일만 업로드할 수 있습니다.');
+    return;
+  }
+
+  toast('이미지 최적화 처리 중... ⏳');
+
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    const img = new Image();
+    img.onload = function() {
+      try {
+        // High-DPI card-optimized max bounds (480x720)
+        const MAX_W = 480;
+        const MAX_H = 720;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > MAX_W || height > MAX_H) {
+          const ratio = Math.min(MAX_W / width, MAX_H / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Compress to high-efficiency JPEG (universally supported across all web & mobile clients)
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        const approxKb = Math.round(compressedDataUrl.length * 0.75 / 1024);
+
+        setImageUrl(compressedDataUrl);
+
+        const statusEl = document.getElementById('imgStatusMsg');
+        if (statusEl) {
+          statusEl.innerHTML = `<span style="color:#10b981; font-weight:800;">✓ 내 기기의 이미지 파일('${escapeHtml(file.name)}')이 첨부되었습니다! 📁 (${width}x${height}, 약 ${approxKb}KB)</span>`;
+        }
+        const title = document.getElementById('f_title').value.trim();
+        updateMultiImgButton(title);
+        toast(`이미지 파일이 성공적으로 첨부되었습니다! 🖼️ (${approxKb}KB)`);
+      } catch (err) {
+        console.error('Image compression error:', err);
+        setImageUrl(evt.target.result);
+        toast('이미지가 첨부되었습니다.');
+      }
+    };
+    img.onerror = function() {
+      toast('이미지 파일을 읽을 수 없습니다. 다른 파일을 선택해주세요.');
+    };
+    img.src = evt.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearCoverImage() {
+  setImageUrl('');
+  const fileInput = document.getElementById('f_imgFile');
+  if (fileInput) fileInput.value = '';
+  const statusEl = document.getElementById('imgStatusMsg');
+  if (statusEl) {
+    statusEl.innerHTML = `<span style="color:var(--text-muted); font-size:11px;">표지 이미지가 제거되었습니다. [📁 파일 업로드]나 링크로 등록해주세요.</span>`;
+  }
+  const title = document.getElementById('f_title').value.trim();
+  updateMultiImgButton(title);
+  toast('표지 이미지가 초기화되었습니다.');
+}
+
+function initPreviewDropzone() {
+  const box = document.getElementById('previewBox');
+  if (!box) return;
+
+  ['dragenter', 'dragover'].forEach(eventName => {
+    box.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      box.classList.add('drag-active');
+    }, false);
+  });
+
+  ['dragleave', 'drop'].forEach(eventName => {
+    box.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      box.classList.remove('drag-active');
+    }, false);
+  });
+
+  box.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    box.classList.remove('drag-active');
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processImageFile(e.dataTransfer.files[0]);
+    }
+  }, false);
+}
+
 function setImageUrl(url) {
   document.getElementById('f_imgUrl').value = url;
   const previewImg = document.getElementById('previewImg');
   const ph = document.getElementById('previewPlaceholder');
+  const clearBtn = document.getElementById('clearImgBtn');
   if (url) {
     previewImg.src = url;
     previewImg.style.display = 'block';
     ph.style.display = 'none';
+    if (clearBtn) clearBtn.style.display = 'inline-flex';
   } else {
     previewImg.src = '';
     previewImg.style.display = 'none';
     ph.style.display = 'block';
+    if (clearBtn) clearBtn.style.display = 'none';
   }
 }
 
@@ -2528,7 +2703,12 @@ function updateImgStatusForEdit(title, imageUrl) {
   const statusEl = document.getElementById('imgStatusMsg');
   if (!statusEl) return;
   if (!imageUrl) {
-    statusEl.innerHTML = `💡 [🔍 웹에서 찾기]로 이미지를 등록하시면 다른 사람에게도 자동 공유됩니다!`;
+    statusEl.innerHTML = `💡 [📁 파일 업로드]나 [🔍 웹에서 찾기]로 이미지를 첨부해보세요!`;
+    return;
+  }
+  if (imageUrl.startsWith('data:')) {
+    const approxKb = Math.round(imageUrl.length * 0.75 / 1024);
+    statusEl.innerHTML = `<span style="color:#10b981; font-weight:800;">✓ 내 기기에서 직접 첨부한 이미지 파일이 연결되어 있습니다! 📁 (~${approxKb}KB)</span>`;
     return;
   }
   const cleanKey = (title || '').toLowerCase().replace(/\s+/g, '');
