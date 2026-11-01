@@ -1046,7 +1046,12 @@ input:focus, textarea:focus, select:focus {
     </div>
 
     <div>
-      <label class="lbl">한줄 메모 / 감상평</label>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <label class="lbl" style="margin:0;">한줄 메모 / 감상평</label>
+        <button id="editReviewCountBtn" type="button" class="btn bg_ xs" onclick="openReviewsModalFromEdit()" style="display:none; color:#6366f1; font-weight:800; border:1px solid rgba(99,102,241,0.3); background:rgba(99,102,241,0.08); padding:2px 8px;">
+          💬 다른 사람 감상평 (<span id="editReviewCount">0</span>)
+        </button>
+      </div>
       <textarea id="f_note" rows="2" placeholder="작품에 대한 감상평이나 기억할 내용을 적어보세요..."></textarea>
     </div>
   </div>
@@ -1117,8 +1122,22 @@ input:focus, textarea:focus, select:focus {
 
 <!-- ══════════════ DETAIL MODAL ══════════════ -->
 <div id="detMdl" class="ov" style="display:none;" onclick="oc(event,'detMdl')">
-<div class="mdl" onclick="event.stopPropagation()" style="width:min(500px,100%);">
+<div class="mdl" onclick="event.stopPropagation()" style="width:min(520px,100%); max-height:90vh; overflow-y:auto;">
   <div id="detContent"></div>
+</div>
+</div>
+
+<!-- ══════════════ COMMUNITY REVIEWS MODAL ══════════════ -->
+<div id="reviewsMdl" class="ov" style="display:none;" onclick="oc(event,'reviewsMdl')">
+<div class="mdl" onclick="event.stopPropagation()" style="width:min(520px,100%); max-height:85vh; display:flex; flex-direction:column;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:12px;">
+    <h3 id="reviewsModalTitle" style="margin:0; font-size:17px; font-weight:800; display:flex; align-items:center; gap:8px;">
+      <span>💬 다른 사람들의 감상평</span>
+    </h3>
+    <button class="btn bg_ sm" onclick="cl('reviewsMdl')" style="font-size:18px; padding:4px 8px;">×</button>
+  </div>
+  <div id="reviewsModalBody" style="overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:10px; padding-right:4px;">
+  </div>
 </div>
 </div>
 
@@ -1149,6 +1168,7 @@ let myShareTitle = "";
 let publicLists = [];
 let COMMUNITY_PRESETS = {}; // Crowdsourced webtoon thumbnails (최신순 대표)
 let COMMUNITY_PRESETS_LIST = []; // 모든 유저가 등록한 이미지 풀 (중복/다양한 버전 포함)
+let COMMUNITY_REVIEWS = {}; // 모든 유저가 남긴 감상평/한줄평 풀
 
 function isAdmin() {
   return currentUser && currentUser.email && currentUser.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
@@ -1388,6 +1408,8 @@ function hydrateGuest() {
     if (cachedPresets) COMMUNITY_PRESETS = JSON.parse(cachedPresets);
     const cachedList = localStorage.getItem('wt_cached_community_list');
     if (cachedList) COMMUNITY_PRESETS_LIST = JSON.parse(cachedList);
+    const cachedReviews = localStorage.getItem('wt_cached_community_reviews');
+    if (cachedReviews) COMMUNITY_REVIEWS = JSON.parse(cachedReviews);
   } catch (e) {}
   try {
     const cached = localStorage.getItem('wt_cached_user_db');
@@ -1726,11 +1748,13 @@ async function fetchCommunityAndPublicLists(showToast) {
 
     COMMUNITY_PRESETS = {};
     COMMUNITY_PRESETS_LIST = [];
+    COMMUNITY_REVIEWS = {};
 
-    // 1. Process community thumbnails
+    // 1. Process community thumbnails & reviews
     (data || []).forEach(row => {
       const list = row.data?.webtoons || [];
       const author = row.user_name || (row.user_email ? maskEmail(row.user_email) : '다른 사용자');
+      const authorTitle = adminTitles[row.user_id] || '';
       list.forEach(w => {
         if (w.title && w.imageUrl) {
           const key = w.title.toLowerCase().replace(/\s+/g, '');
@@ -1757,6 +1781,26 @@ async function fetchCommunityAndPublicLists(showToast) {
               isCommunity: true,
               isFirst: true
             };
+          }
+        }
+
+        // Collect community reviews
+        if (w.title && w.note && w.note.trim()) {
+          const revKey = w.title.toLowerCase().replace(/\s+/g, '');
+          if (!COMMUNITY_REVIEWS[revKey]) COMMUNITY_REVIEWS[revKey] = [];
+          const isBanned = bannedWebtoons.some(b => b.userId === row.user_id && b.wtId === w.id);
+          if (!isBanned) {
+            COMMUNITY_REVIEWS[revKey].push({
+              userId: row.user_id,
+              author: author,
+              authorTitle: authorTitle,
+              note: w.note.trim(),
+              rating: w.rating || 0,
+              tier: w.tier || '',
+              status: w.status || '',
+              chapter: w.chapter || '',
+              addedAt: w.addedAt ? Number(w.addedAt) : (row.updated_at ? new Date(row.updated_at).getTime() : 0)
+            });
           }
         }
       });
@@ -1817,6 +1861,7 @@ async function fetchCommunityAndPublicLists(showToast) {
     try {
       localStorage.setItem('wt_cached_community_presets', JSON.stringify(COMMUNITY_PRESETS));
       localStorage.setItem('wt_cached_community_list', JSON.stringify(COMMUNITY_PRESETS_LIST));
+      localStorage.setItem('wt_cached_community_reviews', JSON.stringify(COMMUNITY_REVIEWS));
     } catch(e) {}
 
     // If edit/add modal is currently open, refresh UI with newly loaded data
@@ -2879,6 +2924,7 @@ function onTitleChange() {
   const suggestBox = document.getElementById('titleSuggestBox');
 
   updateMultiImgButton(raw);
+  updateEditReviewButton(raw);
   updateFirstRegistrantUI(raw);
 
   if (!clean) {
@@ -2935,6 +2981,7 @@ function onTitleChange() {
     }
     suggestBox.style.display = 'none';
     updateMultiImgButton(raw);
+  updateEditReviewButton(raw);
     return;
   }
 
@@ -3385,6 +3432,7 @@ function openAddModal() {
   if (currentViewingUserId) return;
   loadCommunityThumbnails(); // 최신 유저 등록 이미지 풀 갱신
   updateMultiImgButton('');
+  updateEditReviewButton('');
   editId = null;
   document.getElementById('addTitle').textContent = '새 웹툰 추가';
   document.getElementById('saveLabel').textContent = '추가';
@@ -3401,6 +3449,7 @@ function openAddModal() {
   setImageUrl('');
   updateFirstRegistrantUI('');
   updateMultiImgButton('');
+  updateEditReviewButton('');
   popCatSelect();
   document.getElementById('addMdl').style.display = 'flex';
   setTimeout(() => document.getElementById('f_title').focus(), 100);
@@ -3499,6 +3548,7 @@ function editWt(id, e) {
   document.getElementById('f_title').value = w.title;
   updateFirstRegistrantUI(w.title);
   updateMultiImgButton(w.title);
+  updateEditReviewButton(w.title);
   document.getElementById('f_tier').value = w.tier || '';
   document.getElementById('f_status').value = w.status || 'reading';
   document.getElementById('f_rating').value = w.rating || 0;
@@ -3652,6 +3702,105 @@ function moveWebtoonRank(id, direction, e) {
   }
 }
 
+
+// ══════════════════════════════════════════════════════
+//  COMMUNITY REVIEWS LOGIC
+// ══════════════════════════════════════════════════════
+function getReviewsForTitle(title, excludeMyOwn = false) {
+  if (!title) return [];
+  const cleanKey = title.toLowerCase().replace(/\s+/g, '');
+  const allReviews = COMMUNITY_REVIEWS[cleanKey] || [];
+  if (excludeMyOwn && currentUser) {
+    return allReviews.filter(r => r.userId !== currentUser.id);
+  }
+  return allReviews;
+}
+
+function renderReviewsInContainer(title, container, excludeMyOwn = false) {
+  if (!container) return;
+  const reviews = getReviewsForTitle(title, excludeMyOwn);
+  if (!reviews.length) {
+    container.innerHTML = `<div style="text-align:center; padding:18px; color:var(--text-muted); font-size:12px;">아직 다른 사용자가 남긴 감상평이 없습니다. 📝</div>`;
+    return;
+  }
+  container.innerHTML = reviews.map(r => {
+    const tierObj = TIERS.find(t => t.id === r.tier);
+    const sObj = STATUS[r.status];
+    const isMe = currentUser && r.userId === currentUser.id;
+    const addedStr = r.addedAt ? new Date(r.addedAt).toLocaleDateString('ko-KR') : '';
+    return `
+      <div style="background:var(--bg-hover); border:1px solid var(--border-color); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="font-weight:800; font-size:12.5px; color:var(--text-main);">👤 ${escapeHtml(r.author)}</span>
+            ${r.authorTitle ? `<span style="font-size:10px; background:rgba(99,102,241,0.15); color:#6366f1; font-weight:800; padding:1px 6px; border-radius:6px;">${escapeHtml(r.authorTitle)}</span>` : ''}
+            ${isMe ? `<span style="font-size:9.5px; background:rgba(16,185,129,0.15); color:#10b981; font-weight:800; padding:1px 5px; border-radius:4px;">나</span>` : ''}
+          </div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            ${tierObj ? `<span class="ribbon ${tierObj.cls}" style="position:static; font-size:11px; padding:2px 7px;">${tierObj.name}</span>` : ''}
+            ${r.rating > 0 ? `<span style="font-size:12px; font-weight:700; color:#f59e0b;">⭐ ${r.rating}점</span>` : ''}
+          </div>
+        </div>
+        <div style="font-size:12.5px; line-height:1.6; color:var(--text-main); white-space:pre-wrap; background:var(--bg-card); padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.04);">
+          ${escapeHtml(r.note)}
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted);">
+          <span>${r.chapter ? `진행도: ${escapeHtml(r.chapter)}` : (sObj ? `${sObj.emoji} ${sObj.label}` : '')}</span>
+          <span>${addedStr}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function toggleDetailOtherReviews(title) {
+  const box = document.getElementById('detailOtherReviewsBox');
+  const arrow = document.getElementById('detailOtherReviewsArrow');
+  if (!box) return;
+  const isHidden = box.style.display === 'none' || !box.style.display;
+  if (isHidden) {
+    box.style.display = 'flex';
+    if (arrow) arrow.textContent = '▲ 접기';
+    renderReviewsInContainer(title, box, true);
+  } else {
+    box.style.display = 'none';
+    if (arrow) arrow.textContent = '▼ 펼치기';
+  }
+}
+
+function openReviewsModal(title) {
+  if (!title) return;
+  const modalTitle = document.getElementById('reviewsModalTitle');
+  const modalBody = document.getElementById('reviewsModalBody');
+  const reviews = getReviewsForTitle(title, false);
+
+  modalTitle.innerHTML = `<span>💬 '${escapeHtml(title)}' 커뮤니티 감상평 (${reviews.length}개)</span>`;
+  renderReviewsInContainer(title, modalBody, false);
+  document.getElementById('reviewsMdl').style.display = 'flex';
+}
+
+function openReviewsModalFromEdit() {
+  const title = document.getElementById('f_title').value.trim();
+  if (title) openReviewsModal(title);
+}
+
+function updateEditReviewButton(title) {
+  const btn = document.getElementById('editReviewCountBtn');
+  const countSpan = document.getElementById('editReviewCount');
+  if (!btn) return;
+  if (!title) {
+    btn.style.display = 'none';
+    return;
+  }
+  const reviews = getReviewsForTitle(title, true);
+  if (reviews.length > 0) {
+    btn.style.display = 'inline-flex';
+    if (countSpan) countSpan.textContent = reviews.length;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
 function showDetail(id) {
   const w = db.webtoons.find(x => x.id === id);
   if (!w) return;
@@ -3698,10 +3847,40 @@ function showDetail(id) {
       </div>
     </div>
     ${w.note ? `
-      <div style="margin-bottom:20px; padding:14px 16px; background:var(--bg-hover); border-radius:12px; font-size:13px; line-height:1.6; border:1px solid var(--border-color);">
-        📝 ${escapeHtml(w.note)}
+      <div style="margin-bottom:12px; padding:12px 16px; background:var(--bg-hover); border-radius:12px; font-size:13px; line-height:1.6; border:1px solid var(--border-color);">
+        <div style="font-size:11px; font-weight:800; color:var(--text-muted); margin-bottom:4px;">📝 나의 감상평 / 한줄평</div>
+        <div>${escapeHtml(w.note)}</div>
       </div>
     ` : ''}
+
+    <!-- 다른 사람의 감상평 버튼 및 펼침 영역 -->
+    ${(() => {
+      const otherReviews = getReviewsForTitle(w.title, true);
+      const count = otherReviews.length;
+      if (count === 0) {
+        return `
+          <div style="margin-bottom:18px;">
+            <div style="padding:9px 14px; background:var(--bg-hover); border-radius:10px; border:1px solid var(--border-color); font-size:12px; color:var(--text-muted); display:flex; align-items:center; justify-content:space-between;">
+              <span>💬 다른 사람의 감상평</span>
+              <span style="font-size:11px; background:var(--bg-card); padding:2px 8px; border-radius:8px;">아직 등록된 평 없음</span>
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div style="margin-bottom:18px;">
+          <button id="detailOtherReviewsBtn" type="button" class="btn bg_ sm" onclick="toggleDetailOtherReviews('${escapeHtml(w.title)}')" style="width:100%; justify-content:space-between; font-weight:800; padding:10px 14px; border:1.5px solid rgba(99,102,241,0.35); background:rgba(99,102,241,0.08); color:var(--text-main); border-radius:10px; cursor:pointer;">
+            <span style="display:flex; align-items:center; gap:8px;">
+              <span>💬 다른 사람의 감상평 보기</span>
+              <span style="background:#6366f1; color:#fff; font-size:11px; padding:1px 7px; border-radius:10px; font-weight:800;">${count}개</span>
+            </span>
+            <span id="detailOtherReviewsArrow" style="font-size:12px; color:#6366f1; font-weight:800;">▼ 펼치기</span>
+          </button>
+          <div id="detailOtherReviewsBox" style="display:none; margin-top:10px; max-height:280px; overflow-y:auto; flex-direction:column; gap:10px; padding-right:2px;">
+          </div>
+        </div>
+      `;
+    })()}
     <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border-color); padding-top:16px;">
       ${!currentViewingUserId ? `
         <button class="btn bd sm" onclick="delWt('${w.id}'); cl('detMdl');">🗑️ 삭제</button>
@@ -3819,7 +3998,7 @@ function toast(msg) {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') ['addMdl','catMdl','detMdl','authMdl','configMdl','adminTitleMdl','publicListsMdl','folderSwitcherMdl','multiImgMdl','tierRankMdl'].forEach(cl);
+  if (e.key === 'Escape') ['addMdl','catMdl','detMdl','authMdl','configMdl','adminTitleMdl','publicListsMdl','folderSwitcherMdl','multiImgMdl','tierRankMdl','reviewsMdl'].forEach(cl);
   if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); openAddModal(); }
 });
 
