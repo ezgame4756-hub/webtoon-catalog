@@ -1210,6 +1210,8 @@ function initSupabase() {
   if (SUPABASE_URL && SUPABASE_KEY && window.supabase) {
     try {
       spClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+      // Immediately start fetching community reviews & public lists in parallel! (0ms wait)
+      fetchCommunityAndPublicLists();
       listenAuthState();
     } catch(e) {
       console.warn("Supabase init error:", e);
@@ -1242,15 +1244,15 @@ async function handleUserChange(user) {
   if (lastHandledUserId !== newUserId) {
     lastHandledUserId = newUserId;
     if (user) {
-      await loadCloudData(user.id);
+      // Parallelize user cloud data and community list
+      loadCloudData(user.id);
+      fetchCommunityAndPublicLists();
     } else {
       hydrateGuest();
       renderAll();
+      fetchCommunityAndPublicLists();
     }
   }
-
-  // 중복 쿼리 제거: 커뮤니티 표지 풀과 공개 리스트를 단 1회의 백그라운드 쿼리로 초고속 통합 로드!
-  setTimeout(() => fetchCommunityAndPublicLists(), 50);
 }
 
 function updateUserUI(user) {
@@ -1455,6 +1457,11 @@ function hydrateGuest() {
     if (cachedReactions) REACTION_DATA = JSON.parse(cachedReactions);
     const cachedComments = localStorage.getItem('wt_cached_comments');
     if (cachedComments) COMMENTS_DATA = JSON.parse(cachedComments);
+    const cachedPublic = localStorage.getItem('wt_cached_public_lists');
+    if (cachedPublic) {
+      publicLists = JSON.parse(cachedPublic);
+      updatePublicCountBadges();
+    }
   } catch (e) {}
   try {
     const cached = localStorage.getItem('wt_cached_user_db');
@@ -1959,7 +1966,19 @@ async function fetchCommunityAndPublicLists(showToast) {
       localStorage.setItem('wt_cached_community_presets', JSON.stringify(COMMUNITY_PRESETS));
       localStorage.setItem('wt_cached_community_list', JSON.stringify(COMMUNITY_PRESETS_LIST));
       localStorage.setItem('wt_cached_community_reviews', JSON.stringify(COMMUNITY_REVIEWS));
+      localStorage.setItem('wt_cached_public_lists', JSON.stringify(publicLists));
+      localStorage.setItem('wt_cached_reactions', JSON.stringify(REACTION_DATA));
+      localStorage.setItem('wt_cached_comments', JSON.stringify(COMMENTS_DATA));
     } catch(e) {}
+
+    // Refresh any open review views with fresh cloud data
+    document.querySelectorAll('[data-review-title]').forEach(function(container) {
+      const title = container.dataset.reviewTitle;
+      const exclude = container.dataset.reviewExclude === '1';
+      if (title && container.style.display !== 'none') {
+        renderReviewsInContainer(title, container, exclude);
+      }
+    });
 
     // If edit/add modal is currently open, refresh UI with newly loaded data
     const addMdl = document.getElementById('addMdl');
@@ -2733,7 +2752,7 @@ function render() {
     );
   }
 
-  const tierWeight = { 'S+': 7, 'S': 6, 'A': 5, 'B': 4, 'C': 3, 'D': 2, 'F': 1, '': 0 };
+  const tierWeight = { 'fav': 9, 'S+': 8, 'S': 7, 'A': 6, 'B': 5, 'C': 4, 'D': 3, 'F': 2, '': 0 };
   if (sort === 'tier') {
     const originalOrder = new Map(db.webtoons.map((item, i) => [item.id, i]));
     list.sort((a,b) => {
@@ -3755,7 +3774,7 @@ function moveWebtoonRank(id, direction, e) {
     );
   }
 
-  const tierWeight = { 'S+': 7, 'S': 6, 'A': 5, 'B': 4, 'C': 3, 'D': 2, 'F': 1, '': 0 };
+  const tierWeight = { 'fav': 9, 'S+': 8, 'S': 7, 'A': 6, 'B': 5, 'C': 4, 'D': 3, 'F': 2, '': 0 };
   const originalOrder = new Map(db.webtoons.map((item, i) => [item.id, i]));
   if (sort === 'tier') {
     visibleList.sort((a,b) => {
