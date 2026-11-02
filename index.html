@@ -584,6 +584,45 @@ input:focus, textarea:focus, select:focus {
 #catSwitcherBtn:hover, #catSwitcherBtn:active { background: var(--bg-hover) !important; }
 .tier-arrow-btn:hover { background: rgba(255,255,255,0.25) !important; }
 .tier-arrow-btn:active { transform: scale(0.92); }
+
+    /* Batch Management Mode Styles */
+    .batch-mode .wt-card {
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+    }
+    .wt-card.batch-selected {
+      outline: 3px solid #6366f1 !important;
+      outline-offset: -1px;
+      box-shadow: 0 0 16px rgba(99, 102, 241, 0.45) !important;
+      background: rgba(99, 102, 241, 0.12) !important;
+    }
+    .batch-chk-indicator {
+      display: none;
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      z-index: 12;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 2px solid rgba(255, 255, 255, 0.6);
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      color: #fff;
+      font-weight: 900;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+      transition: all 0.15s ease;
+    }
+    .batch-mode .batch-chk-indicator {
+      display: flex;
+    }
+    .wt-card.batch-selected .batch-chk-indicator {
+      background: #6366f1;
+      border-color: #6366f1;
+    }
 </style>
 </head>
 <body>
@@ -728,7 +767,59 @@ input:focus, textarea:focus, select:focus {
     <!-- Dark/Light Mode Toggle -->
     <button class="btn bs sm" onclick="toggleTheme()" id="themeBtn" title="다크/라이트 모드 전환" style="font-size:15px; padding:8px 12px;">🌙</button>
 
+        <button id="batchModeBtn" class="btn bs sm" onclick="toggleBatchMode()" title="여러 웹툰을 한 번에 선택하여 카탈로그/티어 일괄 변경" style="font-size:13px; padding:8px 14px; font-weight:700; display:inline-flex; align-items:center; gap:5px;">
+      <span>☑️</span>
+      <span id="batchModeBtnText">일괄 관리</span>
+    </button>
     <button id="mainAddBtn" class="btn bp" onclick="openAddModal()" style="font-size:14px; padding:8px 18px;">＋ 웹툰 추가</button>
+  </div>
+
+  <!-- Batch Action Bar (Sticky Toolbar when Batch Mode is ON) -->
+  <div id="batchActionBar" style="display:none; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:10px 16px; background:linear-gradient(135deg, rgba(99,102,241,0.18), rgba(168,85,247,0.15)); border:1.5px solid #6366f1; border-radius:12px; margin-bottom:12px; box-shadow:0 4px 14px rgba(99,102,241,0.25);">
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <span style="font-weight:900; font-size:14px; color:var(--text-main); display:inline-flex; align-items:center; gap:6px;">
+        <span>☑️ 선택됨:</span>
+        <span id="batchSelectedCount" style="color:#6366f1; font-size:16px;">0</span>개
+      </span>
+      <div style="display:flex; gap:6px;">
+        <button type="button" class="btn bg_ xs" onclick="batchSelectAllVisible()" style="font-weight:700; padding:4px 9px;">전체 선택</button>
+        <button type="button" class="btn bg_ xs" onclick="batchClearSelection()" style="font-weight:700; padding:4px 9px;">선택 해제</button>
+        <button type="button" class="btn bp xs" onclick="batchSelectUncategorized()" style="background:#6366f1; font-weight:800; padding:4px 10px;" title="카탈로그가 지정되지 않았거나 '전체'에만 있는 웹툰 일괄 선택">📁 미분류 웹툰 전체 선택</button>
+      </div>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <!-- Category Move Dropdown -->
+      <select id="batchCatSelect" onchange="applyBatchCategory(this.value)" style="width:auto; padding:5px 10px; font-size:12.5px; font-weight:700; border:1.5px solid #6366f1; background:var(--bg-card); color:var(--text-main); border-radius:8px;">
+        <option value="">📁 카탈로그 일괄 이동...</option>
+      </select>
+
+      <!-- Tier Change Dropdown -->
+      <select id="batchTierSelect" onchange="applyBatchTier(this.value)" style="width:auto; padding:5px 10px; font-size:12.5px; font-weight:700; background:var(--bg-card); border-radius:8px;">
+        <option value="">🏆 티어 일괄 변경...</option>
+        <option value="fav">💗 최애 (1개 한정)</option>
+        <option value="S+">👑 S+ (초인생작)</option>
+        <option value="S">🔥 S (인생작)</option>
+        <option value="A">✨ A (명작)</option>
+        <option value="B">👍 B (수작)</option>
+        <option value="C">👌 C (평타)</option>
+        <option value="D">💤 D (하차고민)</option>
+        <option value="F">💀 F (지뢰/최악)</option>
+        <option value="__CLEAR__">티어 해제 (미지정)</option>
+      </select>
+
+      <!-- Status Change Dropdown -->
+      <select id="batchStatusSelect" onchange="applyBatchStatus(this.value)" style="width:auto; padding:5px 10px; font-size:12.5px; font-weight:700; background:var(--bg-card); border-radius:8px;">
+        <option value="">📖 상태 일괄 변경...</option>
+        <option value="reading">📖 읽는 중</option>
+        <option value="completed">✅ 완독</option>
+        <option value="paused">⏸️ 중단</option>
+        <option value="plan">⏳ 읽을 예정</option>
+      </select>
+
+      <button type="button" class="btn bd xs" onclick="applyBatchDelete()" style="font-weight:700; padding:5px 9px;">🗑️ 삭제</button>
+      <button type="button" class="btn bs xs" onclick="toggleBatchMode(false)" style="font-weight:800; padding:5px 10px;">✕ 완료</button>
+    </div>
   </div>
 
   <!-- Grid View (Smooth Full Height Scroll) -->
@@ -1175,7 +1266,223 @@ let SUPABASE_KEY = DEFAULT_SUPABASE_KEY;
 
 let spClient = null;
 let currentUser = null;
-let currentViewingUserId = null; // null: 내 리스트 / string: 타인 공유 리스트 열람 모드
+let currentViewingUserId = null;
+let isBatchMode = false;
+let batchSelectedIds = new Set();
+
+function toggleBatchMode(forceState) {
+  if (currentViewingUserId) {
+    toast('타인의 리스트를 둘러보는 중에는 일괄 관리를 사용할 수 없습니다.');
+    return;
+  }
+  isBatchMode = typeof forceState === 'boolean' ? forceState : !isBatchMode;
+  if (!isBatchMode) {
+    batchSelectedIds.clear();
+  }
+
+  const bar = document.getElementById('batchActionBar');
+  const btn = document.getElementById('batchModeBtn');
+  const btnText = document.getElementById('batchModeBtnText');
+  const grid = document.getElementById('grid');
+
+  if (bar) bar.style.display = isBatchMode ? 'flex' : 'none';
+  if (btn) {
+    btn.className = isBatchMode ? 'btn bp sm' : 'btn bs sm';
+    if (isBatchMode) {
+      btn.style.background = '#6366f1';
+      btn.style.color = '#fff';
+    } else {
+      btn.style.background = '';
+      btn.style.color = '';
+    }
+  }
+  if (btnText) btnText.textContent = isBatchMode ? '일괄 관리 중' : '일괄 관리';
+  if (grid) {
+    if (isBatchMode) grid.classList.add('batch-mode');
+    else grid.classList.remove('batch-mode');
+  }
+
+  if (isBatchMode) {
+    updateBatchCatDropdown();
+    updateBatchCountUI();
+  }
+  render();
+}
+
+function updateBatchCatDropdown() {
+  const sel = document.getElementById('batchCatSelect');
+  if (!sel) return;
+  let html = '<option value="">📁 카탈로그 일괄 이동...</option>';
+  (db.catalogs || []).forEach(cat => {
+    html += '<option value="' + cat.id + '">' + escapeHtml(cat.emoji || '📁') + ' ' + escapeHtml(cat.name) + '</option>';
+  });
+  sel.innerHTML = html;
+}
+
+function updateBatchCountUI() {
+  const el = document.getElementById('batchSelectedCount');
+  if (el) el.textContent = batchSelectedIds.size;
+}
+
+function toggleBatchCardSelect(id) {
+  if (batchSelectedIds.has(id)) {
+    batchSelectedIds.delete(id);
+  } else {
+    batchSelectedIds.add(id);
+  }
+  updateBatchCountUI();
+  const card = document.querySelector('.wt-card[data-id="' + id + '"]');
+  if (card) {
+    card.classList.toggle('batch-selected', batchSelectedIds.has(id));
+    const chk = card.querySelector('.batch-chk-indicator');
+    if (chk) chk.innerHTML = batchSelectedIds.has(id) ? '✓' : '';
+  }
+}
+
+function batchSelectAllVisible() {
+  document.querySelectorAll('.wt-card[data-id]').forEach(card => {
+    const id = card.dataset.id;
+    if (id) {
+      batchSelectedIds.add(id);
+      card.classList.add('batch-selected');
+      const chk = card.querySelector('.batch-chk-indicator');
+      if (chk) chk.innerHTML = '✓';
+    }
+  });
+  updateBatchCountUI();
+  toast('현재 화면의 웹툰 ' + batchSelectedIds.size + '개가 모두 선택되었습니다!');
+}
+
+function batchClearSelection() {
+  batchSelectedIds.clear();
+  document.querySelectorAll('.wt-card[data-id]').forEach(card => {
+    card.classList.remove('batch-selected');
+    const chk = card.querySelector('.batch-chk-indicator');
+    if (chk) chk.innerHTML = '';
+  });
+  updateBatchCountUI();
+  toast('선택이 해제되었습니다.');
+}
+
+function batchSelectUncategorized() {
+  const validCatIds = new Set((db.catalogs || []).map(c => c.id));
+  validCatIds.delete('all'); // 'all' is sys all
+
+  let count = 0;
+  (db.webtoons || []).forEach(w => {
+    const isUncat = !w.catId || w.catId === 'all' || !validCatIds.has(w.catId);
+    if (isUncat) {
+      batchSelectedIds.add(w.id);
+      count++;
+    }
+  });
+
+  updateBatchCountUI();
+  render();
+  toast('미분류 웹툰 ' + count + '개가 선택되었습니다! 상단에서 이동할 카탈로그를 선택하세요. 📁');
+}
+
+function applyBatchCategory(catId) {
+  if (!catId) return;
+  if (batchSelectedIds.size === 0) {
+    toast('선택된 웹툰이 없습니다. 먼저 웹툰을 선택해주세요! ⚠️');
+    document.getElementById('batchCatSelect').value = '';
+    return;
+  }
+  const targetCat = (db.catalogs || []).find(c => c.id === catId);
+  const catName = targetCat ? targetCat.name : catId;
+  const count = batchSelectedIds.size;
+
+  let modified = 0;
+  (db.webtoons || []).forEach(w => {
+    if (batchSelectedIds.has(w.id)) {
+      w.catId = catId;
+      modified++;
+    }
+  });
+
+  persist();
+  render();
+  renderCatalogs();
+  toast(`선택한 ${modified}개 웹툰이 '${catName}' 카탈로그로 일괄 이동되었습니다! 📁✨`);
+  document.getElementById('batchCatSelect').value = '';
+}
+
+function applyBatchTier(tierVal) {
+  if (!tierVal) return;
+  if (batchSelectedIds.size === 0) {
+    toast('선택된 웹툰이 없습니다. 먼저 웹툰을 선택해주세요! ⚠️');
+    document.getElementById('batchTierSelect').value = '';
+    return;
+  }
+
+  if (tierVal === 'fav') {
+    if (batchSelectedIds.size > 1) {
+      toast('💗 최애 티어는 인당 1개만 지정할 수 있습니다! (여러 개 동시 지정 불가) ⚠️');
+      document.getElementById('batchTierSelect').value = '';
+      return;
+    }
+    const [singleId] = Array.from(batchSelectedIds);
+    const dup = (db.webtoons || []).find(w => w.tier === 'fav' && w.id !== singleId);
+    if (dup) {
+      toast('💗 최애 티어는 이미 [' + dup.title + '] 작품에 지정되어 있습니다! ⚠️');
+      document.getElementById('batchTierSelect').value = '';
+      return;
+    }
+  }
+
+  const finalTier = tierVal === '__CLEAR__' ? '' : tierVal;
+  let modified = 0;
+  (db.webtoons || []).forEach(w => {
+    if (batchSelectedIds.has(w.id)) {
+      w.tier = finalTier;
+      modified++;
+    }
+  });
+
+  persist();
+  render();
+  toast(`선택한 ${modified}개 웹툰의 티어가 일괄 변경되었습니다! 🏆`);
+  document.getElementById('batchTierSelect').value = '';
+}
+
+function applyBatchStatus(statusVal) {
+  if (!statusVal) return;
+  if (batchSelectedIds.size === 0) {
+    toast('선택된 웹툰이 없습니다. 먼저 웹툰을 선택해주세요! ⚠️');
+    document.getElementById('batchStatusSelect').value = '';
+    return;
+  }
+
+  let modified = 0;
+  (db.webtoons || []).forEach(w => {
+    if (batchSelectedIds.has(w.id)) {
+      w.status = statusVal;
+      modified++;
+    }
+  });
+
+  persist();
+  render();
+  toast(`선택한 ${modified}개 웹툰의 상태가 일괄 변경되었습니다! 📖`);
+  document.getElementById('batchStatusSelect').value = '';
+}
+
+function applyBatchDelete() {
+  if (batchSelectedIds.size === 0) {
+    toast('선택된 웹툰이 없습니다! ⚠️');
+    return;
+  }
+  const count = batchSelectedIds.size;
+  if (!confirm(`선택한 ${count}개의 웹툰을 정말로 모두 삭제하시겠습니까?\n삭제 후 클라우드에서도 삭제됩니다.`)) return;
+
+  db.webtoons = (db.webtoons || []).filter(w => !batchSelectedIds.has(w.id));
+  batchSelectedIds.clear();
+  persist();
+  render();
+  renderCatalogs();
+  toast(`${count}개 웹툰이 일괄 삭제되었습니다. 🗑️`);
+} // null: 내 리스트 / string: 타인 공유 리스트 열람 모드
 let myShareStatus = false;
 let myShareTitle = "";
 let publicLists = [];
@@ -2714,6 +3021,7 @@ function toggleSidebar(open) {
 function renderAll() {
   renderSidebar();
   render();
+  if (typeof isBatchMode !== 'undefined' && isBatchMode) updateBatchCatDropdown();
   document.getElementById('totalBadge').textContent = `총 ${db.webtoons.length}편 등록됨`;
 }
 
@@ -2849,6 +3157,7 @@ function createCard(w) {
 
   card.innerHTML = `
     <div class="cover">
+      <div class="batch-chk-indicator">${(isBatchMode && batchSelectedIds.has(w.id)) ? '✓' : ''}</div>
       ${tierHtml}
       <div class="ribbon ${s.cls}">${s.label}</div>
       ${adultBadge}
@@ -2881,7 +3190,18 @@ function createCard(w) {
     </div>
   `;
 
+  // Batch mode selection check
+  if (isBatchMode && batchSelectedIds.has(w.id)) {
+    card.classList.add('batch-selected');
+  }
+
   card.onclick = (e) => {
+    if (isBatchMode) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleBatchCardSelect(w.id);
+      return;
+    }
     // 수정/삭제 버튼을 제외하고 표지 이미지 및 카드 어디를 눌러도 상세정보가 열립니다.
     if (e.target.closest('button')) return;
     showDetail(w.id);
