@@ -1805,6 +1805,48 @@ async function fetchCommunityAndPublicLists(showToast) {
     COMMUNITY_PRESETS_LIST = [];
     COMMUNITY_REVIEWS = {};
 
+    // Merge reactions and comments from all cloud users
+    if (!REACTION_DATA) REACTION_DATA = {};
+    if (!COMMENTS_DATA) COMMENTS_DATA = {};
+    (data || []).forEach(row => {
+      const rowReactions = row.data?._reactions || {};
+      const rowComments = row.data?._comments || {};
+
+      // Merge reactions: rowReactions = { [tKey]: { [rKey]: {like, dislike} } }
+      Object.keys(rowReactions).forEach(tKey => {
+        if (!REACTION_DATA[tKey]) REACTION_DATA[tKey] = {};
+        Object.keys(rowReactions[tKey]).forEach(rKey => {
+          REACTION_DATA[tKey][rKey] = rowReactions[tKey][rKey];
+        });
+      });
+
+      // Merge comments: rowComments = { [tKey]: { [reviewUserId]: [ {id, userId, author, text, ts, replies} ] } }
+      Object.keys(rowComments).forEach(tKey => {
+        if (!COMMENTS_DATA[tKey]) COMMENTS_DATA[tKey] = {};
+        Object.keys(rowComments[tKey]).forEach(revUid => {
+          if (!COMMENTS_DATA[tKey][revUid]) COMMENTS_DATA[tKey][revUid] = [];
+          const existingList = COMMENTS_DATA[tKey][revUid];
+          const incomingList = rowComments[tKey][revUid] || [];
+          incomingList.forEach(inCmt => {
+            const foundIdx = existingList.findIndex(e => e.id === inCmt.id || (e.userId === inCmt.userId && e.ts === inCmt.ts));
+            if (foundIdx >= 0) {
+              const existReplies = existingList[foundIdx].replies || [];
+              const inReplies = inCmt.replies || [];
+              inReplies.forEach(inRep => {
+                if (!existReplies.some(r => r.id === inRep.id || (r.userId === inRep.userId && r.ts === inRep.ts))) {
+                  existReplies.push(inRep);
+                }
+              });
+              existingList[foundIdx].replies = existReplies;
+            } else {
+              existingList.push(inCmt);
+            }
+          });
+          existingList.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+        });
+      });
+    });
+
     // 1. Process community thumbnails & reviews
     (data || []).forEach(row => {
       const list = row.data?.webtoons || [];
@@ -3775,27 +3817,38 @@ function getReviewsForTitle(title, excludeMyOwn = false) {
   return allReviews;
 }
 
-function renderReviewsInContainer(title, container, excludeMyOwn = false) {
+function renderReviewsInContainer(title, container, excludeMyOwn) {
+  if (excludeMyOwn === undefined) excludeMyOwn = false;
   if (!container) return;
   const reviews = getReviewsForTitle(title, excludeMyOwn);
   if (!reviews.length) {
-    container.innerHTML = '<div style="text-align:center; padding:18px; color:var(--text-muted); font-size:12px;">아직 다른 사용자가 남긴 감상평이 없습니다. 📝</div>';
+    container.innerHTML = '<div style="text-align:center;padding:24px 16px;color:var(--text-muted);font-size:12.5px;background:var(--bg-card);border-radius:12px;border:1px dashed var(--border-color);">아직 다른 사용자가 남긴 감상평이 없습니다. 📝</div>';
     return;
   }
   const tKey = title.toLowerCase().replace(/\s+/g, '');
   const myId = currentUser ? currentUser.id : null;
-  container.innerHTML = reviews.map((r, idx) => {
-    const tierObj = TIERS.find(t => t.id === r.tier);
+
+  // Preserve which comment boxes were already open in this container
+  const openBoxKeys = new Set();
+  container.querySelectorAll('[id^="cmts_"]').forEach(function(box) {
+    if (box.style.display !== 'none') {
+      openBoxKeys.add(box.getAttribute('data-boxkey'));
+    }
+  });
+
+  let html = '';
+  reviews.forEach(function(r, idx) {
+    const tierObj = TIERS.find(function(t){ return t.id === r.tier; });
     const sObj = STATUS[r.status];
     const isMe = myId && r.userId === myId;
     const addedStr = r.addedAt ? new Date(r.addedAt).toLocaleDateString('ko-KR') : '';
-    const reactions = (REACTION_DATA[tKey] && REACTION_DATA[tKey][r.userId]) || {};
-    const myReaction = myId ? ((REACTION_DATA[tKey] && REACTION_DATA[tKey][myId + '_on_' + r.userId]) || {}) : {};
-    // Count likes/dislikes from all users
+    const myReactionKey = myId ? (myId + '_on_' + r.userId) : '';
+    const myReaction = myId && REACTION_DATA[tKey] ? (REACTION_DATA[tKey][myReactionKey] || {}) : {};
     const allR = REACTION_DATA[tKey] || {};
     let likeCount = 0, dislikeCount = 0;
-    Object.keys(allR).forEach(k => {
-      if (k.endsWith('_on_' + r.userId)) {
+    const suffix = '_on_' + r.userId;
+    Object.keys(allR).forEach(function(k) {
+      if (k.endsWith(suffix)) {
         if (allR[k].like) likeCount++;
         if (allR[k].dislike) dislikeCount++;
       }
@@ -3803,177 +3856,261 @@ function renderReviewsInContainer(title, container, excludeMyOwn = false) {
     const myLike = myReaction.like || false;
     const myDislike = myReaction.dislike || false;
     const comments = (COMMENTS_DATA[tKey] && COMMENTS_DATA[tKey][r.userId]) || [];
-    const commentCount = comments.reduce((a, c) => a + 1 + (c.replies ? c.replies.length : 0), 0);
-    return '<div data-review-idx="' + idx + '" style="background:var(--bg-hover); border:1px solid var(--border-color); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:8px;">' +
-      '<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">' +
-        '<div style="display:flex; align-items:center; gap:6px;">' +
-          '<span style="font-weight:800; font-size:12.5px; color:var(--text-main);">👤 ' + escapeHtml(r.author) + '</span>' +
-          (r.authorTitle ? '<span style="font-size:10px; background:rgba(99,102,241,0.15); color:#6366f1; font-weight:800; padding:1px 6px; border-radius:6px;">' + escapeHtml(r.authorTitle) + '</span>' : '') +
-          (isMe ? '<span style="font-size:9.5px; background:rgba(16,185,129,0.15); color:#10b981; font-weight:800; padding:1px 5px; border-radius:4px;">나</span>' : '') +
-        '</div>' +
-        '<div style="display:flex; align-items:center; gap:6px;">' +
-          (tierObj ? '<span class="ribbon ' + tierObj.cls + '" style="position:static; font-size:11px; padding:2px 7px;">' + tierObj.name + '</span>' : '') +
-          (r.rating > 0 ? '<span style="font-size:12px; font-weight:700; color:#f59e0b;">⭐ ' + r.rating + '점</span>' : '') +
-        '</div>' +
-      '</div>' +
-      '<div style="font-size:12.5px; line-height:1.6; color:var(--text-main); white-space:pre-wrap; background:var(--bg-card); padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.04);">' +
-        escapeHtml(r.note) +
-      '</div>' +
-      '<div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted);">' +
-        '<span>' + (r.chapter ? '진행도: ' + escapeHtml(r.chapter) : (sObj ? sObj.emoji + ' ' + sObj.label : '')) + '</span>' +
-        '<span>' + addedStr + '</span>' +
-      '</div>' +
-      '<div style="display:flex; align-items:center; gap:8px; margin-top:2px;">' +
-        '<button onclick="toggleReaction(' + JSON.stringify(tKey) + ',' + JSON.stringify(r.userId) + ',"like")" style="background:' + (myLike ? 'rgba(99,102,241,0.25)' : 'var(--bg-card)') + '; border:1px solid ' + (myLike ? '#6366f1' : 'var(--border-color)') + '; border-radius:8px; padding:3px 10px; font-size:12px; cursor:pointer; color:' + (myLike ? '#6366f1' : 'var(--text-muted)') + '; font-weight:700;">👍 ' + likeCount + '</button>' +
-        '<button onclick="toggleReaction(' + JSON.stringify(tKey) + ',' + JSON.stringify(r.userId) + ',"dislike")" style="background:' + (myDislike ? 'rgba(239,68,68,0.2)' : 'var(--bg-card)') + '; border:1px solid ' + (myDislike ? '#ef4444' : 'var(--border-color)') + '; border-radius:8px; padding:3px 10px; font-size:12px; cursor:pointer; color:' + (myDislike ? '#ef4444' : 'var(--text-muted)') + '; font-weight:700;">👎 ' + dislikeCount + '</button>' +
-        '<button onclick="toggleComments(' + JSON.stringify(tKey) + ',' + JSON.stringify(r.userId) + ',this)" style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:8px; padding:3px 10px; font-size:12px; cursor:pointer; color:var(--text-muted); font-weight:700;">💬 ' + commentCount + '</button>' +
-      '</div>' +
-      '<div id="cmts_' + tKey + '_' + r.userId + '" style="display:none; flex-direction:column; gap:6px; margin-top:4px;">' +
-        renderCommentsHtml(tKey, r.userId, comments) +
-      '</div>' +
-    '</div>';
-  }).join('');
-}
+    const commentCount = comments.reduce(function(a,c){ return a + 1 + (c.replies ? c.replies.length : 0); }, 0);
 
-function renderCommentsHtml(tKey, reviewUserId, comments) {
-  const myId = currentUser ? currentUser.id : null;
-  const myName = myId ? (myNickname || (currentUser.email)) : '게스트';
-  let html = '';
-  (comments || []).forEach((c, ci) => {
-    const isMyComment = myId && c.userId === myId;
-    const dateStr = c.ts ? new Date(c.ts).toLocaleDateString('ko-KR') : '';
-    html += '<div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:8px; padding:8px 10px;">' +
-      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-        '<span style="font-size:11.5px; font-weight:700; color:var(--text-main);">👤 ' + escapeHtml(getDisplayName(c.userId, c.author)) + '</span>' +
-        '<div style="display:flex; gap:6px; align-items:center;">' +
-          '<span style="font-size:10px; color:var(--text-muted);">' + dateStr + '</span>' +
-          (isMyComment ? '<button onclick="deleteComment(' + JSON.stringify(tKey) + ',' + JSON.stringify(reviewUserId) + ',' + ci + ',null)" style="background:none; border:none; color:#ef4444; font-size:11px; cursor:pointer;">삭제</button>' : '') +
-        '</div>' +
-      '</div>' +
-      '<div style="font-size:12px; color:var(--text-main); white-space:pre-wrap;">' + escapeHtml(c.text) + '</div>' +
-      '<div style="margin-top:6px; display:flex; flex-direction:column; gap:4px; padding-left:12px; border-left:2px solid var(--border-color);">';
-    (c.replies || []).forEach((rep, ri) => {
-      const isMyReply = myId && rep.userId === myId;
-      const repDate = rep.ts ? new Date(rep.ts).toLocaleDateString('ko-KR') : '';
-      html += '<div style="display:flex; justify-content:space-between; align-items:flex-start;">' +
-        '<div>' +
-          '<span style="font-size:11px; font-weight:700; color:#6366f1;">↩ ' + escapeHtml(getDisplayName(rep.userId, rep.author)) + '</span>' +
-          '<span style="font-size:11px; color:var(--text-main); white-space:pre-wrap; display:block; margin-top:2px;">' + escapeHtml(rep.text) + '</span>' +
-        '</div>' +
-        '<div style="display:flex; gap:4px; align-items:center; flex-shrink:0;">' +
-          '<span style="font-size:10px; color:var(--text-muted);">' + repDate + '</span>' +
-          (isMyReply ? '<button onclick="deleteComment(' + JSON.stringify(tKey) + ',' + JSON.stringify(reviewUserId) + ',' + ci + ',' + ri + ')" style="background:none; border:none; color:#ef4444; font-size:11px; cursor:pointer;">삭제</button>' : '') +
-        '</div>' +
-      '</div>';
-    });
+    const btnLikeStyle = 'background:' + (myLike ? 'rgba(99,102,241,0.2)' : 'var(--bg-card)') + ';border:1px solid ' + (myLike ? '#6366f1' : 'var(--border-color)') + ';border-radius:8px;padding:4px 12px;font-size:12px;cursor:pointer;color:' + (myLike ? '#6366f1' : 'var(--text-muted)') + ';font-weight:800;transition:all 0.15s ease;display:inline-flex;align-items:center;gap:4px;';
+    const btnDisStyle = 'background:' + (myDislike ? 'rgba(239,68,68,0.2)' : 'var(--bg-card)') + ';border:1px solid ' + (myDislike ? '#ef4444' : 'var(--border-color)') + ';border-radius:8px;padding:4px 12px;font-size:12px;cursor:pointer;color:' + (myDislike ? '#ef4444' : 'var(--text-muted)') + ';font-weight:800;transition:all 0.15s ease;display:inline-flex;align-items:center;gap:4px;';
+    const boxKey = tKey + '_' + r.userId;
+    const cmtBoxId = 'cmts_' + container.id + '_' + idx;
+    const isBoxOpen = openBoxKeys.has(boxKey);
+
+    html += '<div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 2px 6px rgba(0,0,0,0.1);">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">';
+    html += '<div style="display:flex;align-items:center;gap:6px;">';
+    html += '<span style="font-weight:800;font-size:13px;color:var(--text-main);">👤 ' + escapeHtml(r.author) + '</span>';
+    if (r.authorTitle) html += '<span style="font-size:10px;background:rgba(99,102,241,0.15);color:#6366f1;font-weight:800;padding:2px 7px;border-radius:6px;">' + escapeHtml(r.authorTitle) + '</span>';
+    if (isMe) html += '<span style="font-size:10px;background:rgba(16,185,129,0.15);color:#10b981;font-weight:800;padding:2px 6px;border-radius:4px;">나의 감상평</span>';
     html += '</div>';
-    if (myId) {
-      html += '<button onclick="showReplyInput(' + JSON.stringify(tKey) + ',' + JSON.stringify(reviewUserId) + ',' + ci + ',this)" style="margin-top:6px; background:none; border:none; font-size:11px; color:#6366f1; cursor:pointer; font-weight:700;">↩ 대댓글</button>' +
-        '<div id="reply_' + tKey + '_' + reviewUserId + '_' + ci + '" style="display:none; margin-top:4px;">' +
-          '<div style="display:flex; gap:6px;">' +
-            '<input placeholder="대댓글 입력..." style="flex:1; background:var(--bg-main); border:1px solid var(--border-color); border-radius:6px; padding:5px 8px; font-size:12px; color:var(--text-main);" id="replyInp_' + tKey + '_' + reviewUserId + '_' + ci + '">' +
-            '<button onclick="submitReply(' + JSON.stringify(tKey) + ',' + JSON.stringify(reviewUserId) + ',' + ci + ')" style="background:#6366f1; border:none; border-radius:6px; padding:5px 10px; font-size:12px; color:#fff; cursor:pointer; font-weight:700;">등록</button>' +
-          '</div>' +
-        '</div>';
-    }
+    html += '<div style="display:flex;align-items:center;gap:6px;">';
+    if (tierObj) html += '<span class="ribbon ' + tierObj.cls + '" style="position:static;font-size:11px;padding:3px 8px;border-radius:6px;">' + tierObj.name + '</span>';
+    if (r.rating > 0) html += '<span style="font-size:12px;font-weight:800;color:#f59e0b;">⭐ ' + r.rating + '점</span>';
+    html += '</div></div>';
+
+    html += '<div style="font-size:13px;line-height:1.65;color:var(--text-main);white-space:pre-wrap;background:var(--bg-hover);padding:10px 12px;border-radius:8px;border:1px solid var(--border-color);">' + escapeHtml(r.note) + '</div>';
+
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-muted);">';
+    html += '<span>' + (r.chapter ? '진행도: ' + escapeHtml(r.chapter) : (sObj ? sObj.emoji + ' ' + sObj.label : '')) + '</span>';
+    html += '<span>' + addedStr + '</span></div>';
+
+    html += '<div style="display:flex;align-items:center;gap:8px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.05);">';
+    html += '<button data-tkey="' + escapeHtml(tKey) + '" data-uid="' + escapeHtml(r.userId) + '" data-type="like" onclick="handleReactionClick(this)" style="' + btnLikeStyle + '" title="좋아요">👍 <span style="margin-left:2px;">' + likeCount + '</span></button>';
+    html += '<button data-tkey="' + escapeHtml(tKey) + '" data-uid="' + escapeHtml(r.userId) + '" data-type="dislike" onclick="handleReactionClick(this)" style="' + btnDisStyle + '" title="싫어요">👎 <span style="margin-left:2px;">' + dislikeCount + '</span></button>';
+    html += '<button data-cmtbox="' + cmtBoxId + '" onclick="handleToggleComments(this)" style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;padding:4px 12px;font-size:12px;cursor:pointer;color:var(--text-main);font-weight:800;display:inline-flex;align-items:center;gap:4px;" title="댓글 보기/작성">💬 <span>댓글 ' + commentCount + '</span></button>';
+    html += '</div>';
+
+    html += '<div id="' + cmtBoxId + '" data-boxkey="' + boxKey + '" style="display:' + (isBoxOpen ? 'flex' : 'none') + ';flex-direction:column;gap:8px;margin-top:6px;padding:10px;background:var(--bg-hover);border-radius:8px;border:1px solid var(--border-color);">';
+    html += renderCommentsHtml(tKey, r.userId, cmtBoxId, comments);
+    html += '</div>';
     html += '</div>';
   });
-  if (myId) {
-    html += '<div style="display:flex; gap:6px; margin-top:4px;">' +
-      '<input placeholder="댓글 입력..." style="flex:1; background:var(--bg-main); border:1px solid var(--border-color); border-radius:6px; padding:6px 10px; font-size:12px; color:var(--text-main);" id="cmtInp_' + tKey + '_' + reviewUserId + '">' +
-      '<button onclick="submitComment(' + JSON.stringify(tKey) + ',' + JSON.stringify(reviewUserId) + ')" style="background:#6366f1; border:none; border-radius:6px; padding:6px 12px; font-size:12px; color:#fff; cursor:pointer; font-weight:700;">등록</button>' +
-    '</div>';
+  container.innerHTML = html;
+  container.dataset.reviewTitle = title;
+  container.dataset.reviewExclude = excludeMyOwn ? '1' : '0';
+}
+
+function renderCommentsHtml(tKey, reviewUserId, cmtBoxId, comments) {
+  const myId = currentUser ? currentUser.id : null;
+  let html = '';
+  if (comments && comments.length > 0) {
+    html += '<div style="display:flex;flex-direction:column;gap:6px;">';
+    comments.forEach(function(c, ci) {
+      const isMyComment = myId && c.userId === myId;
+      const dateStr = c.ts ? new Date(c.ts).toLocaleDateString('ko-KR') : '';
+      html += '<div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;padding:8px 10px;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">';
+      html += '<div style="display:flex;align-items:center;gap:5px;">';
+      html += '<span style="font-size:11.5px;font-weight:800;color:var(--text-main);">👤 ' + escapeHtml(getDisplayName(c.userId, c.author)) + '</span>';
+      if (isMyComment) html += '<span style="font-size:9.5px;background:rgba(16,185,129,0.15);color:#10b981;font-weight:700;padding:1px 4px;border-radius:3px;">나</span>';
+      html += '</div>';
+      html += '<div style="display:flex;gap:6px;align-items:center;">';
+      html += '<span style="font-size:10px;color:var(--text-muted);">' + dateStr + '</span>';
+      if (isMyComment) html += '<button data-tkey="' + tKey + '" data-uid="' + reviewUserId + '" data-ci="' + ci + '" data-ri="null" onclick="handleDeleteComment(this)" style="background:none;border:none;color:#ef4444;font-size:11px;cursor:pointer;padding:0 2px;">삭제</button>';
+      html += '</div></div>';
+      html += '<div style="font-size:12px;color:var(--text-main);white-space:pre-wrap;line-height:1.5;">' + escapeHtml(c.text) + '</div>';
+
+      // Replies list
+      if (c.replies && c.replies.length > 0) {
+        html += '<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px;padding-left:10px;border-left:2px solid #6366f1;">';
+        c.replies.forEach(function(rep, ri) {
+          const isMyReply = myId && rep.userId === myId;
+          const repDate = rep.ts ? new Date(rep.ts).toLocaleDateString('ko-KR') : '';
+          html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;background:var(--bg-hover);padding:5px 8px;border-radius:6px;">';
+          html += '<div><span style="font-size:11px;font-weight:800;color:#6366f1;">↳ 👤 ' + escapeHtml(getDisplayName(rep.userId, rep.author)) + '</span>';
+          if (isMyReply) html += ' <span style="font-size:9px;color:#10b981;font-weight:700;">(나)</span>';
+          html += '<span style="font-size:11.5px;color:var(--text-main);white-space:pre-wrap;display:block;margin-top:2px;line-height:1.4;">' + escapeHtml(rep.text) + '</span></div>';
+          html += '<div style="display:flex;gap:4px;align-items:center;flex-shrink:0;">';
+          html += '<span style="font-size:10px;color:var(--text-muted);">' + repDate + '</span>';
+          if (isMyReply) html += '<button data-tkey="' + tKey + '" data-uid="' + reviewUserId + '" data-ci="' + ci + '" data-ri="' + ri + '" onclick="handleDeleteComment(this)" style="background:none;border:none;color:#ef4444;font-size:10.5px;cursor:pointer;padding:0 2px;">삭제</button>';
+          html += '</div></div>';
+        });
+        html += '</div>';
+      }
+
+      // Reply input button & box
+      if (myId) {
+        const replyInpId = 'repinp_' + cmtBoxId + '_' + ci;
+        html += '<button onclick="const el=document.getElementById(\'' + replyInpId + '_box\'); el.style.display=el.style.display===\'none\'?\'flex\':\'none\'\; if(el.style.display===\'flex\') document.getElementById(\'' + replyInpId + '\').focus();" style="margin-top:5px;background:none;border:none;font-size:11px;color:#6366f1;cursor:pointer;font-weight:800;padding:0;">↳ 대댓글 달기</button>';
+        html += '<div id="' + replyInpId + '_box" style="display:none;gap:6px;margin-top:4px;">';
+        html += '<input id="' + replyInpId + '" placeholder="대댓글을 입력하세요..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();handleSubmitReply(this.nextElementSibling);}" style="flex:1;background:var(--bg-main);border:1px solid var(--border-color);border-radius:6px;padding:5px 8px;font-size:12px;color:var(--text-main);">';
+        html += '<button data-tkey="' + tKey + '" data-uid="' + reviewUserId + '" data-ci="' + ci + '" data-inpid="' + replyInpId + '" onclick="handleSubmitReply(this)" style="background:#6366f1;border:none;border-radius:6px;padding:5px 10px;font-size:11.5px;color:#fff;cursor:pointer;font-weight:800;">등록</button>';
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
   } else {
-    html += '<div style="font-size:11px; color:var(--text-muted); padding:4px 0;">댓글을 달려면 로그인하세요.</div>';
+    html += '<div style="font-size:11.5px;color:var(--text-muted);text-align:center;padding:4px 0;">아직 댓글이 없습니다. 첫 댓글을 남겨보세요! 💬</div>';
+  }
+
+  // Comment input form
+  if (myId) {
+    const mainInpId = 'cmtinp_' + cmtBoxId;
+    html += '<div style="display:flex;gap:6px;margin-top:4px;">';
+    html += '<input id="' + mainInpId + '" placeholder="댓글을 입력하세요 (Enter로 등록)..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();handleSubmitComment(this.nextElementSibling);}" style="flex:1;background:var(--bg-main);border:1px solid var(--border-color);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-main);">';
+    html += '<button data-tkey="' + tKey + '" data-uid="' + reviewUserId + '" data-inpid="' + mainInpId + '" onclick="handleSubmitComment(this)" style="background:#6366f1;border:none;border-radius:6px;padding:6px 12px;font-size:12px;color:#fff;cursor:pointer;font-weight:800;white-space:nowrap;">등록</button>';
+    html += '</div>';
+  } else {
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;padding:6px 10px;margin-top:4px;">';
+    html += '<span style="font-size:11.5px;color:var(--text-muted);">댓글을 달려면 로그인이 필요합니다.</span>';
+    html += '<button class="btn bp xs" onclick="openAuthModal()" style="font-size:11px;padding:3px 8px;">로그인</button>';
+    html += '</div>';
   }
   return html;
 }
 
-function toggleComments(tKey, reviewUserId, btn) {
-  const box = document.getElementById('cmts_' + tKey + '_' + reviewUserId);
+function handleReactionClick(btn) {
+  if (!currentUser) {
+    toast('좋아요를 누르려면 로그인이 필요합니다! 🔒');
+    openAuthModal();
+    return;
+  }
+  const tKey = btn.dataset.tkey;
+  const uid = btn.dataset.uid;
+  const type = btn.dataset.type;
+  toggleReaction(tKey, uid, type);
+}
+
+function handleToggleComments(btn) {
+  const boxId = btn.dataset.cmtbox;
+  const box = document.getElementById(boxId);
   if (!box) return;
   const isHidden = box.style.display === 'none' || !box.style.display;
   box.style.display = isHidden ? 'flex' : 'none';
-  box.style.flexDirection = 'column';
-  box.style.gap = '6px';
+  if (isHidden) {
+    const inp = box.querySelector('input');
+    if (inp) setTimeout(function(){ inp.focus(); }, 50);
+  }
 }
 
-function showReplyInput(tKey, reviewUserId, ci, btn) {
-  const box = document.getElementById('reply_' + tKey + '_' + reviewUserId + '_' + ci);
-  if (!box) return;
-  box.style.display = box.style.display === 'none' || !box.style.display ? 'block' : 'none';
-}
-
-function submitComment(tKey, reviewUserId) {
-  if (!currentUser) { toast('로그인이 필요합니다.'); return; }
-  const inp = document.getElementById('cmtInp_' + tKey + '_' + reviewUserId);
-  if (!inp || !inp.value.trim()) return;
+function handleSubmitComment(btn) {
+  if (!currentUser) {
+    toast('댓글을 작성하려면 로그인이 필요합니다! 🔒');
+    openAuthModal();
+    return;
+  }
+  const tKey = btn.dataset.tkey;
+  const uid = btn.dataset.uid;
+  const inpId = btn.dataset.inpid;
+  const inp = document.getElementById(inpId);
+  if (!inp || !inp.value.trim()) {
+    toast('댓글 내용을 입력해주세요! ✍️');
+    if (inp) inp.focus();
+    return;
+  }
+  const text = inp.value.trim();
   if (!COMMENTS_DATA[tKey]) COMMENTS_DATA[tKey] = {};
-  if (!COMMENTS_DATA[tKey][reviewUserId]) COMMENTS_DATA[tKey][reviewUserId] = [];
-  COMMENTS_DATA[tKey][reviewUserId].push({
-    id: Date.now(),
+  if (!COMMENTS_DATA[tKey][uid]) COMMENTS_DATA[tKey][uid] = [];
+  COMMENTS_DATA[tKey][uid].push({
+    id: Date.now() + Math.floor(Math.random() * 1000),
     userId: currentUser.id,
-    author: myNickname || currentUser.email,
-    text: inp.value.trim(),
+    author: myNickname || (currentUser.email ? currentUser.email.split('@')[0] : '익명'),
+    text: text,
     ts: Date.now(),
     replies: []
   });
+  inp.value = '';
+  toast('댓글이 등록되었습니다! 💬');
   _persistReactionsComments();
 }
 
-function submitReply(tKey, reviewUserId, ci) {
-  if (!currentUser) { toast('로그인이 필요합니다.'); return; }
-  const inp = document.getElementById('replyInp_' + tKey + '_' + reviewUserId + '_' + ci);
-  if (!inp || !inp.value.trim()) return;
-  if (!COMMENTS_DATA[tKey]) COMMENTS_DATA[tKey] = {};
-  if (!COMMENTS_DATA[tKey][reviewUserId]) COMMENTS_DATA[tKey][reviewUserId] = [];
-  if (!COMMENTS_DATA[tKey][reviewUserId][ci]) return;
-  if (!COMMENTS_DATA[tKey][reviewUserId][ci].replies) COMMENTS_DATA[tKey][reviewUserId][ci].replies = [];
-  COMMENTS_DATA[tKey][reviewUserId][ci].replies.push({
-    id: Date.now(),
+function handleSubmitReply(btn) {
+  if (!currentUser) {
+    toast('대댓글을 작성하려면 로그인이 필요합니다! 🔒');
+    openAuthModal();
+    return;
+  }
+  const tKey = btn.dataset.tkey;
+  const uid = btn.dataset.uid;
+  const ci = parseInt(btn.dataset.ci);
+  const inpId = btn.dataset.inpid;
+  const inp = document.getElementById(inpId);
+  if (!inp || !inp.value.trim()) {
+    toast('대댓글 내용을 입력해주세요! ✍️');
+    if (inp) inp.focus();
+    return;
+  }
+  const text = inp.value.trim();
+  if (!COMMENTS_DATA[tKey] || !COMMENTS_DATA[tKey][uid] || !COMMENTS_DATA[tKey][uid][ci]) return;
+  if (!COMMENTS_DATA[tKey][uid][ci].replies) COMMENTS_DATA[tKey][uid][ci].replies = [];
+  COMMENTS_DATA[tKey][uid][ci].replies.push({
+    id: Date.now() + Math.floor(Math.random() * 1000),
     userId: currentUser.id,
-    author: myNickname || currentUser.email,
-    text: inp.value.trim(),
+    author: myNickname || (currentUser.email ? currentUser.email.split('@')[0] : '익명'),
+    text: text,
     ts: Date.now()
   });
+  inp.value = '';
+  toast('대댓글이 등록되었습니다! 💬');
   _persistReactionsComments();
 }
 
-function deleteComment(tKey, reviewUserId, ci, ri) {
+function handleDeleteComment(btn) {
   if (!currentUser) return;
-  if (!COMMENTS_DATA[tKey] || !COMMENTS_DATA[tKey][reviewUserId]) return;
-  if (ri === null || ri === undefined) {
-    const c = COMMENTS_DATA[tKey][reviewUserId][ci];
-    if (!c || c.userId !== currentUser.id) return;
-    COMMENTS_DATA[tKey][reviewUserId].splice(ci, 1);
+  if (!confirm('이 댓글을 삭제하시겠습니까?')) return;
+  const tKey = btn.dataset.tkey;
+  const uid = btn.dataset.uid;
+  const ci = parseInt(btn.dataset.ci);
+  const ri = btn.dataset.ri === 'null' ? null : parseInt(btn.dataset.ri);
+
+  if (!COMMENTS_DATA[tKey] || !COMMENTS_DATA[tKey][uid]) return;
+  if (ri === null || isNaN(ri)) {
+    const c = COMMENTS_DATA[tKey][uid][ci];
+    if (!c || c.userId !== currentUser.id) { toast('본인이 작성한 댓글만 삭제할 수 있습니다.'); return; }
+    COMMENTS_DATA[tKey][uid].splice(ci, 1);
   } else {
-    const replies = COMMENTS_DATA[tKey][reviewUserId][ci]?.replies;
-    if (!replies || !replies[ri] || replies[ri].userId !== currentUser.id) return;
+    const replies = COMMENTS_DATA[tKey][uid][ci] && COMMENTS_DATA[tKey][uid][ci].replies;
+    if (!replies || !replies[ri] || replies[ri].userId !== currentUser.id) { toast('본인이 작성한 대댓글만 삭제할 수 있습니다.'); return; }
     replies.splice(ri, 1);
   }
+  toast('댓글이 삭제되었습니다. 🗑️');
   _persistReactionsComments();
 }
 
 function toggleReaction(tKey, reviewUserId, type) {
-  if (!currentUser) { toast('로그인이 필요합니다.'); return; }
+  if (!currentUser) {
+    toast('좋아요를 누르려면 로그인이 필요합니다! 🔒');
+    openAuthModal();
+    return;
+  }
   const myId = currentUser.id;
   const rKey = myId + '_on_' + reviewUserId;
   if (!REACTION_DATA[tKey]) REACTION_DATA[tKey] = {};
-  if (!REACTION_DATA[tKey][rKey]) REACTION_DATA[tKey][rKey] = { like: false, dislike: false };
+  if (!REACTION_DATA[tKey][rKey]) REACTION_DATA[tKey][rKey] = { like: false, dislike: false, userId: myId, targetUserId: reviewUserId };
   const cur = REACTION_DATA[tKey][rKey];
+
   if (type === 'like') {
     cur.like = !cur.like;
-    if (cur.like) cur.dislike = false;
+    if (cur.like) {
+      cur.dislike = false;
+      toast('좋아요를 표시했습니다! 👍');
+    } else {
+      toast('좋아요를 취소했습니다.');
+    }
   } else {
     cur.dislike = !cur.dislike;
-    if (cur.dislike) cur.like = false;
+    if (cur.dislike) {
+      cur.like = false;
+      toast('싫어요를 표시했습니다! 👎');
+    } else {
+      toast('싫어요를 취소했습니다.');
+    }
   }
   _persistReactionsComments();
 }
 
 function _persistReactionsComments() {
   try {
-    if (currentUser) {
+    if (currentUser && db) {
       db._reactions = REACTION_DATA;
       db._comments = COMMENTS_DATA;
     }
@@ -3981,38 +4118,25 @@ function _persistReactionsComments() {
     localStorage.setItem('wt_cached_comments', JSON.stringify(COMMENTS_DATA));
   } catch(e) {}
   if (currentUser) syncToCloud();
-  // Re-render open review containers
-  document.querySelectorAll('[id^="cmts_"]').forEach(box => {
-    const parts = box.id.split('_');
-    if (parts.length < 3) return;
-    const reviewUserId = parts[parts.length - 1];
-    const tKey2 = parts.slice(1, parts.length - 1).join('_');
-    if (box.style.display !== 'none') {
-      const comments2 = (COMMENTS_DATA[tKey2] && COMMENTS_DATA[tKey2][reviewUserId]) || [];
-      box.innerHTML = renderCommentsHtml(tKey2, reviewUserId, comments2);
+
+  // Re-render all open review containers preserving their states
+  document.querySelectorAll('[data-review-title]').forEach(function(container) {
+    const title = container.dataset.reviewTitle;
+    const exclude = container.dataset.reviewExclude === '1';
+    if (title && container.style.display !== 'none') {
+      renderReviewsInContainer(title, container, exclude);
     }
   });
-  // Re-render the whole review container if visible
-  const detailBox = document.getElementById('detailOtherReviewsBox');
-  if (detailBox && detailBox.style.display !== 'none') {
-    const titleEl = document.getElementById('detailTitle');
-    if (titleEl) renderReviewsInContainer(titleEl.textContent || titleEl.innerText, detailBox, true);
-  }
-  const modalBody = document.getElementById('reviewsModalBody');
-  const modalTitle = document.getElementById('reviewsModalTitle');
-  if (modalBody && modalBody.closest && modalBody.closest('.modal') && modalBody.closest('.modal').style.display !== 'none') {
-    const span = modalTitle ? modalTitle.querySelector('span') : null;
-    if (span) {
-      const m = span.textContent.match(/'(.+?)'/);
-      if (m) renderReviewsInContainer(m[1], modalBody, false);
-    }
-  }
 }
 
 function openNicknameModal() {
-  if (!currentUser) return;
+  if (!currentUser) {
+    toast('로그인이 필요합니다.');
+    openAuthModal();
+    return;
+  }
   const cur = myNickname || '';
-  const newName = prompt('표시될 닉네임을 입력하세요\n(비워두면 이메일 표시)', cur);
+  const newName = prompt('표시될 닉네임을 입력하세요\n(모든 감상평, 댓글, 등록자 표시에 반영됩니다):', cur);
   if (newName === null) return;
   const trimmed = newName.trim();
   myNickname = trimmed;
@@ -4020,7 +4144,8 @@ function openNicknameModal() {
   const el = document.getElementById('userEmailLabel');
   if (el) el.textContent = trimmed || currentUser.email;
   syncToCloudNow();
-  toast('닉네임이 변경되었습니다: ' + (trimmed || currentUser.email));
+  renderAll();
+  toast('닉네임이 [' + (trimmed || currentUser.email) + '] 으로 설정되었습니다! ✨');
 }
 
 function toggleDetailOtherReviews(title) {
