@@ -395,6 +395,17 @@ input:checked + .slider:before {
   border: 1px solid rgba(239, 68, 68, 0.4);
   font-weight: 900;
 }
+.t-fav {
+  background: linear-gradient(135deg, #ff6b9d, #c44569);
+  color: #fff;
+  border: 1px solid #ff6b9d;
+  box-shadow: 0 0 10px rgba(255,107,157,0.5);
+  animation: fav-pulse 2s ease-in-out infinite;
+}
+@keyframes fav-pulse {
+  0%,100% { box-shadow: 0 0 6px rgba(255,107,157,0.4); }
+  50% { box-shadow: 0 0 16px rgba(255,107,157,0.9); }
+}
 
 .ribbon {
   position: absolute;
@@ -944,8 +955,9 @@ input:focus, textarea:focus, select:focus {
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
       <div>
         <label class="lbl">🏆 티어 등급 (S+ ~ F)</label>
-        <select id="f_tier">
+        <select id="f_tier" onchange="onTierChange(this.value)">
           <option value="">미지정</option>
+          <option value="fav">💗 최애 (인당 1개 한정)</option>
           <option value="S+">👑 S+티어 (신계/초인생작)</option>
           <option value="S">🔥 S티어 (인생작)</option>
           <option value="A">✨ A티어 (명작)</option>
@@ -1169,9 +1181,29 @@ let publicLists = [];
 let COMMUNITY_PRESETS = {}; // Crowdsourced webtoon thumbnails (최신순 대표)
 let COMMUNITY_PRESETS_LIST = []; // 모든 유저가 등록한 이미지 풀 (중복/다양한 버전 포함)
 let COMMUNITY_REVIEWS = {}; // 모든 유저가 남긴 감상평/한줄평 풀
+let REACTION_DATA = {}; // { "titlekey": { "userId": {like:bool, dislike:bool} } }
+let COMMENTS_DATA = {}; // { "titlekey": [{id, userId, author, text, ts, replies:[]}] }
+let USER_DISPLAY_NAMES = {}; // { userId: displayName }
+let myNickname = '';
 
 function isAdmin() {
   return currentUser && currentUser.email && currentUser.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+}
+
+function getDisplayName(userId, fallback) {
+  if (!userId) return fallback || '익명';
+  if (currentUser && userId === currentUser.id) return myNickname || fallback || currentUser.email;
+  return USER_DISPLAY_NAMES[userId] || fallback || '사용자';
+}
+
+function onTierChange(val) {
+  if (val !== 'fav') return;
+  const currentEditId = typeof editId !== 'undefined' ? editId : null;
+  const alreadyFav = (db.webtoons || []).find(w => w.tier === 'fav' && w.id !== currentEditId);
+  if (alreadyFav) {
+    alert('[최애] 티어는 인당 1개만 등록할 수 있습니다!\n현재 최애: ' + alreadyFav.title);
+    document.getElementById('f_tier').value = '';
+  }
 }
 
 function initSupabase() {
@@ -1232,7 +1264,12 @@ function updateUserUI(user) {
   if (user) {
     statusLabel.textContent = "🟢 동기화 중";
     statusLabel.style.color = "#10b981";
-    emailLabel.textContent = user.email;
+    const savedNick = localStorage.getItem('wt_nickname_' + user.id);
+    myNickname = savedNick || '';
+    emailLabel.textContent = myNickname || user.email;
+    emailLabel.style.cursor = 'pointer';
+    emailLabel.title = '클릭하여 닉네임 수정';
+    emailLabel.onclick = openNicknameModal;
     authBtn.textContent = "로그아웃";
     authBtn.className = "btn bs xs";
     authBtn.onclick = handleLogout;
@@ -1248,6 +1285,9 @@ function updateUserUI(user) {
     statusLabel.textContent = "👤 게스트 모드";
     statusLabel.style.color = "var(--text-muted)";
     emailLabel.textContent = "로그인 필요";
+    emailLabel.style.cursor = "";
+    emailLabel.title = "";
+    emailLabel.onclick = null;
     authBtn.textContent = "로그인 / 가입";
     authBtn.className = "btn bp xs";
     authBtn.onclick = openAuthModal;
@@ -1362,6 +1402,7 @@ const STATUS = {
 };
 
 const TIERS = [
+  { id:'fav', label:'최애', name:'💗 최애 (나만의 1등)', cls:'t-fav', emoji:'💗', limit:1 },
   { id:'S+', label:'S+티어', name:'👑 S+ (초인생작)', cls:'t-Splus', emoji:'👑' },
   { id:'S',  label:'S티어',  name:'🔥 S (인생작)',   cls:'t-S',     emoji:'🔥' },
   { id:'A',  label:'A티어',  name:'✨ A (명작)',     cls:'t-A',     emoji:'✨' },
@@ -1410,6 +1451,10 @@ function hydrateGuest() {
     if (cachedList) COMMUNITY_PRESETS_LIST = JSON.parse(cachedList);
     const cachedReviews = localStorage.getItem('wt_cached_community_reviews');
     if (cachedReviews) COMMUNITY_REVIEWS = JSON.parse(cachedReviews);
+    const cachedReactions = localStorage.getItem('wt_cached_reactions');
+    if (cachedReactions) REACTION_DATA = JSON.parse(cachedReactions);
+    const cachedComments = localStorage.getItem('wt_cached_comments');
+    if (cachedComments) COMMENTS_DATA = JSON.parse(cachedComments);
   } catch (e) {}
   try {
     const cached = localStorage.getItem('wt_cached_user_db');
@@ -1447,12 +1492,14 @@ async function syncToCloudNow() {
     const payload = {
       user_id: currentUser.id,
       user_email: currentUser.email,
-      user_name: currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || '',
+      user_name: myNickname || currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || '',
       data: {
         ...db,
         ...adminProps,
         _is_shared: myShareStatus,
-        _share_title: myShareTitle || ''
+        _share_title: myShareTitle || '',
+        _reactions: REACTION_DATA,
+        _comments: COMMENTS_DATA
       },
       updated_at: new Date().toISOString()
     };
@@ -1488,6 +1535,8 @@ async function loadCloudData(userId) {
     if (data && data.data && data.data.catalogs) {
       // 기존 저장된 웹툰 목록 성공적으로 로드
       db = data.data;
+      if (data.data._reactions) REACTION_DATA = data.data._reactions;
+      if (data.data._comments) COMMENTS_DATA = data.data._comments;
       if (isAdmin()) {
         if (data.data._admin_first_registrants) db._admin_first_registrants = data.data._admin_first_registrants;
         if (data.data._admin_titles) db._admin_titles = data.data._admin_titles;
@@ -1740,6 +1789,12 @@ async function fetchCommunityAndPublicLists(showToast) {
 
     if (error) throw error;
 
+    // Build display name cache
+    USER_DISPLAY_NAMES = {};
+    (data || []).forEach(row => {
+      if (row.user_id && row.user_name) USER_DISPLAY_NAMES[row.user_id] = row.user_name;
+    });
+
     const adminRow = (data || []).find(r => r.user_email === ADMIN_EMAIL);
     const adminTitles = adminRow?.data?._admin_titles || {};
     const adminFirsts = adminRow?.data?._admin_first_registrants || {};
@@ -1753,7 +1808,7 @@ async function fetchCommunityAndPublicLists(showToast) {
     // 1. Process community thumbnails & reviews
     (data || []).forEach(row => {
       const list = row.data?.webtoons || [];
-      const author = row.user_name || (row.user_email ? maskEmail(row.user_email) : '다른 사용자');
+      const author = getDisplayName(row.user_id, row.user_name || (row.user_email ? maskEmail(row.user_email) : '다른 사용자'));
       const authorTitle = adminTitles[row.user_id] || '';
       list.forEach(w => {
         if (w.title && w.imageUrl) {
@@ -2006,7 +2061,7 @@ function renderPublicListsModal(query, sortType) {
     // Earliest addedAt or updated_at
     const addedAts = webtoons.map(w => Number(w.addedAt)).filter(t => !isNaN(t) && t > 0);
     item._firstTime = addedAts.length ? Math.min(...addedAts) : (item._updatedTime || 9999999999999);
-    item._displayName = item._effective_title || (item.user_name ? `${item.user_name} 님의 컬렉션` : (maskEmail(item.user_email) + ' 님의 컬렉션'));
+    item._displayName = item._effective_title || ((item.user_name || getDisplayName(item.user_id, '')) ? `${item.user_name || getDisplayName(item.user_id, '')} 님의 컴렉션` : (maskEmail(item.user_email) + ' 님의 컴렉션'));
   });
 
   // Sorting
@@ -2068,7 +2123,7 @@ function renderPublicListsModal(query, sortType) {
             ${(currentSort === 'count' && idx === 0 && count > 0) ? '<span style="font-size:10.5px; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); padding:1px 6px; border-radius:4px; font-weight:900;">🏆 최다 등록 1위</span>' : ''}
           </div>
           <div style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:8px; font-weight:500; flex-wrap:wrap;">
-            <span>👤 ${escapeHtml(maskEmail(item.user_email))}</span>
+            <span>👤 ${escapeHtml(item.user_name || getDisplayName(item.user_id, '') || maskEmail(item.user_email))}</span>
             <span>•</span>
             <span style="color:${currentSort === 'count' ? 'var(--primary-color)' : 'var(--text-main)'}; font-weight:800;">📚 총 ${count}편</span>
             ${dateStr ? `<span>•</span><span>🕒 최근 수정: ${dateStr}</span>` : ''}
@@ -3581,7 +3636,11 @@ function saveWebtoon() {
   const title = document.getElementById('f_title').value.trim();
   if (!title) { toast('웹툰 제목을 입력해주세요!'); return; }
   const tier = document.getElementById('f_tier').value;
-  const status = document.getElementById('f_status').value;
+  if (tier === 'fav') {
+    const dupFav = (db.webtoons || []).find(w => w.tier === 'fav' && w.id !== editId);
+    if (dupFav) { toast('💗 최애 티어는 인당 1개만 등록 가능합니다! 현재 최애: ' + dupFav.title); return; }
+  }
+    const status = document.getElementById('f_status').value;
   const catId = document.getElementById('f_cat').value;
   const rating = parseInt(document.getElementById('f_rating').value) || 0;
   const chapter = document.getElementById('f_ch').value.trim();
@@ -3720,37 +3779,248 @@ function renderReviewsInContainer(title, container, excludeMyOwn = false) {
   if (!container) return;
   const reviews = getReviewsForTitle(title, excludeMyOwn);
   if (!reviews.length) {
-    container.innerHTML = `<div style="text-align:center; padding:18px; color:var(--text-muted); font-size:12px;">아직 다른 사용자가 남긴 감상평이 없습니다. 📝</div>`;
+    container.innerHTML = '<div style="text-align:center; padding:18px; color:var(--text-muted); font-size:12px;">아직 다른 사용자가 남긴 감상평이 없습니다. 📝</div>';
     return;
   }
-  container.innerHTML = reviews.map(r => {
+  const tKey = title.toLowerCase().replace(/\s+/g, '');
+  const myId = currentUser ? currentUser.id : null;
+  container.innerHTML = reviews.map((r, idx) => {
     const tierObj = TIERS.find(t => t.id === r.tier);
     const sObj = STATUS[r.status];
-    const isMe = currentUser && r.userId === currentUser.id;
+    const isMe = myId && r.userId === myId;
     const addedStr = r.addedAt ? new Date(r.addedAt).toLocaleDateString('ko-KR') : '';
-    return `
-      <div style="background:var(--bg-hover); border:1px solid var(--border-color); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:8px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
-          <div style="display:flex; align-items:center; gap:6px;">
-            <span style="font-weight:800; font-size:12.5px; color:var(--text-main);">👤 ${escapeHtml(r.author)}</span>
-            ${r.authorTitle ? `<span style="font-size:10px; background:rgba(99,102,241,0.15); color:#6366f1; font-weight:800; padding:1px 6px; border-radius:6px;">${escapeHtml(r.authorTitle)}</span>` : ''}
-            ${isMe ? `<span style="font-size:9.5px; background:rgba(16,185,129,0.15); color:#10b981; font-weight:800; padding:1px 5px; border-radius:4px;">나</span>` : ''}
-          </div>
-          <div style="display:flex; align-items:center; gap:6px;">
-            ${tierObj ? `<span class="ribbon ${tierObj.cls}" style="position:static; font-size:11px; padding:2px 7px;">${tierObj.name}</span>` : ''}
-            ${r.rating > 0 ? `<span style="font-size:12px; font-weight:700; color:#f59e0b;">⭐ ${r.rating}점</span>` : ''}
-          </div>
-        </div>
-        <div style="font-size:12.5px; line-height:1.6; color:var(--text-main); white-space:pre-wrap; background:var(--bg-card); padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.04);">
-          ${escapeHtml(r.note)}
-        </div>
-        <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted);">
-          <span>${r.chapter ? `진행도: ${escapeHtml(r.chapter)}` : (sObj ? `${sObj.emoji} ${sObj.label}` : '')}</span>
-          <span>${addedStr}</span>
-        </div>
-      </div>
-    `;
+    const reactions = (REACTION_DATA[tKey] && REACTION_DATA[tKey][r.userId]) || {};
+    const myReaction = myId ? ((REACTION_DATA[tKey] && REACTION_DATA[tKey][myId + '_on_' + r.userId]) || {}) : {};
+    // Count likes/dislikes from all users
+    const allR = REACTION_DATA[tKey] || {};
+    let likeCount = 0, dislikeCount = 0;
+    Object.keys(allR).forEach(k => {
+      if (k.endsWith('_on_' + r.userId)) {
+        if (allR[k].like) likeCount++;
+        if (allR[k].dislike) dislikeCount++;
+      }
+    });
+    const myLike = myReaction.like || false;
+    const myDislike = myReaction.dislike || false;
+    const comments = (COMMENTS_DATA[tKey] && COMMENTS_DATA[tKey][r.userId]) || [];
+    const commentCount = comments.reduce((a, c) => a + 1 + (c.replies ? c.replies.length : 0), 0);
+    return '<div data-review-idx="' + idx + '" style="background:var(--bg-hover); border:1px solid var(--border-color); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:8px;">' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">' +
+        '<div style="display:flex; align-items:center; gap:6px;">' +
+          '<span style="font-weight:800; font-size:12.5px; color:var(--text-main);">👤 ' + escapeHtml(r.author) + '</span>' +
+          (r.authorTitle ? '<span style="font-size:10px; background:rgba(99,102,241,0.15); color:#6366f1; font-weight:800; padding:1px 6px; border-radius:6px;">' + escapeHtml(r.authorTitle) + '</span>' : '') +
+          (isMe ? '<span style="font-size:9.5px; background:rgba(16,185,129,0.15); color:#10b981; font-weight:800; padding:1px 5px; border-radius:4px;">나</span>' : '') +
+        '</div>' +
+        '<div style="display:flex; align-items:center; gap:6px;">' +
+          (tierObj ? '<span class="ribbon ' + tierObj.cls + '" style="position:static; font-size:11px; padding:2px 7px;">' + tierObj.name + '</span>' : '') +
+          (r.rating > 0 ? '<span style="font-size:12px; font-weight:700; color:#f59e0b;">⭐ ' + r.rating + '점</span>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:12.5px; line-height:1.6; color:var(--text-main); white-space:pre-wrap; background:var(--bg-card); padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.04);">' +
+        escapeHtml(r.note) +
+      '</div>' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted);">' +
+        '<span>' + (r.chapter ? '진행도: ' + escapeHtml(r.chapter) : (sObj ? sObj.emoji + ' ' + sObj.label : '')) + '</span>' +
+        '<span>' + addedStr + '</span>' +
+      '</div>' +
+      '<div style="display:flex; align-items:center; gap:8px; margin-top:2px;">' +
+        '<button onclick="toggleReaction(' + JSON.stringify(tKey) + ',' + JSON.stringify(r.userId) + ',"like")" style="background:' + (myLike ? 'rgba(99,102,241,0.25)' : 'var(--bg-card)') + '; border:1px solid ' + (myLike ? '#6366f1' : 'var(--border-color)') + '; border-radius:8px; padding:3px 10px; font-size:12px; cursor:pointer; color:' + (myLike ? '#6366f1' : 'var(--text-muted)') + '; font-weight:700;">👍 ' + likeCount + '</button>' +
+        '<button onclick="toggleReaction(' + JSON.stringify(tKey) + ',' + JSON.stringify(r.userId) + ',"dislike")" style="background:' + (myDislike ? 'rgba(239,68,68,0.2)' : 'var(--bg-card)') + '; border:1px solid ' + (myDislike ? '#ef4444' : 'var(--border-color)') + '; border-radius:8px; padding:3px 10px; font-size:12px; cursor:pointer; color:' + (myDislike ? '#ef4444' : 'var(--text-muted)') + '; font-weight:700;">👎 ' + dislikeCount + '</button>' +
+        '<button onclick="toggleComments(' + JSON.stringify(tKey) + ',' + JSON.stringify(r.userId) + ',this)" style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:8px; padding:3px 10px; font-size:12px; cursor:pointer; color:var(--text-muted); font-weight:700;">💬 ' + commentCount + '</button>' +
+      '</div>' +
+      '<div id="cmts_' + tKey + '_' + r.userId + '" style="display:none; flex-direction:column; gap:6px; margin-top:4px;">' +
+        renderCommentsHtml(tKey, r.userId, comments) +
+      '</div>' +
+    '</div>';
   }).join('');
+}
+
+function renderCommentsHtml(tKey, reviewUserId, comments) {
+  const myId = currentUser ? currentUser.id : null;
+  const myName = myId ? (myNickname || (currentUser.email)) : '게스트';
+  let html = '';
+  (comments || []).forEach((c, ci) => {
+    const isMyComment = myId && c.userId === myId;
+    const dateStr = c.ts ? new Date(c.ts).toLocaleDateString('ko-KR') : '';
+    html += '<div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:8px; padding:8px 10px;">' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+        '<span style="font-size:11.5px; font-weight:700; color:var(--text-main);">👤 ' + escapeHtml(getDisplayName(c.userId, c.author)) + '</span>' +
+        '<div style="display:flex; gap:6px; align-items:center;">' +
+          '<span style="font-size:10px; color:var(--text-muted);">' + dateStr + '</span>' +
+          (isMyComment ? '<button onclick="deleteComment(' + JSON.stringify(tKey) + ',' + JSON.stringify(reviewUserId) + ',' + ci + ',null)" style="background:none; border:none; color:#ef4444; font-size:11px; cursor:pointer;">삭제</button>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:12px; color:var(--text-main); white-space:pre-wrap;">' + escapeHtml(c.text) + '</div>' +
+      '<div style="margin-top:6px; display:flex; flex-direction:column; gap:4px; padding-left:12px; border-left:2px solid var(--border-color);">';
+    (c.replies || []).forEach((rep, ri) => {
+      const isMyReply = myId && rep.userId === myId;
+      const repDate = rep.ts ? new Date(rep.ts).toLocaleDateString('ko-KR') : '';
+      html += '<div style="display:flex; justify-content:space-between; align-items:flex-start;">' +
+        '<div>' +
+          '<span style="font-size:11px; font-weight:700; color:#6366f1;">↩ ' + escapeHtml(getDisplayName(rep.userId, rep.author)) + '</span>' +
+          '<span style="font-size:11px; color:var(--text-main); white-space:pre-wrap; display:block; margin-top:2px;">' + escapeHtml(rep.text) + '</span>' +
+        '</div>' +
+        '<div style="display:flex; gap:4px; align-items:center; flex-shrink:0;">' +
+          '<span style="font-size:10px; color:var(--text-muted);">' + repDate + '</span>' +
+          (isMyReply ? '<button onclick="deleteComment(' + JSON.stringify(tKey) + ',' + JSON.stringify(reviewUserId) + ',' + ci + ',' + ri + ')" style="background:none; border:none; color:#ef4444; font-size:11px; cursor:pointer;">삭제</button>' : '') +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    if (myId) {
+      html += '<button onclick="showReplyInput(' + JSON.stringify(tKey) + ',' + JSON.stringify(reviewUserId) + ',' + ci + ',this)" style="margin-top:6px; background:none; border:none; font-size:11px; color:#6366f1; cursor:pointer; font-weight:700;">↩ 대댓글</button>' +
+        '<div id="reply_' + tKey + '_' + reviewUserId + '_' + ci + '" style="display:none; margin-top:4px;">' +
+          '<div style="display:flex; gap:6px;">' +
+            '<input placeholder="대댓글 입력..." style="flex:1; background:var(--bg-main); border:1px solid var(--border-color); border-radius:6px; padding:5px 8px; font-size:12px; color:var(--text-main);" id="replyInp_' + tKey + '_' + reviewUserId + '_' + ci + '">' +
+            '<button onclick="submitReply(' + JSON.stringify(tKey) + ',' + JSON.stringify(reviewUserId) + ',' + ci + ')" style="background:#6366f1; border:none; border-radius:6px; padding:5px 10px; font-size:12px; color:#fff; cursor:pointer; font-weight:700;">등록</button>' +
+          '</div>' +
+        '</div>';
+    }
+    html += '</div>';
+  });
+  if (myId) {
+    html += '<div style="display:flex; gap:6px; margin-top:4px;">' +
+      '<input placeholder="댓글 입력..." style="flex:1; background:var(--bg-main); border:1px solid var(--border-color); border-radius:6px; padding:6px 10px; font-size:12px; color:var(--text-main);" id="cmtInp_' + tKey + '_' + reviewUserId + '">' +
+      '<button onclick="submitComment(' + JSON.stringify(tKey) + ',' + JSON.stringify(reviewUserId) + ')" style="background:#6366f1; border:none; border-radius:6px; padding:6px 12px; font-size:12px; color:#fff; cursor:pointer; font-weight:700;">등록</button>' +
+    '</div>';
+  } else {
+    html += '<div style="font-size:11px; color:var(--text-muted); padding:4px 0;">댓글을 달려면 로그인하세요.</div>';
+  }
+  return html;
+}
+
+function toggleComments(tKey, reviewUserId, btn) {
+  const box = document.getElementById('cmts_' + tKey + '_' + reviewUserId);
+  if (!box) return;
+  const isHidden = box.style.display === 'none' || !box.style.display;
+  box.style.display = isHidden ? 'flex' : 'none';
+  box.style.flexDirection = 'column';
+  box.style.gap = '6px';
+}
+
+function showReplyInput(tKey, reviewUserId, ci, btn) {
+  const box = document.getElementById('reply_' + tKey + '_' + reviewUserId + '_' + ci);
+  if (!box) return;
+  box.style.display = box.style.display === 'none' || !box.style.display ? 'block' : 'none';
+}
+
+function submitComment(tKey, reviewUserId) {
+  if (!currentUser) { toast('로그인이 필요합니다.'); return; }
+  const inp = document.getElementById('cmtInp_' + tKey + '_' + reviewUserId);
+  if (!inp || !inp.value.trim()) return;
+  if (!COMMENTS_DATA[tKey]) COMMENTS_DATA[tKey] = {};
+  if (!COMMENTS_DATA[tKey][reviewUserId]) COMMENTS_DATA[tKey][reviewUserId] = [];
+  COMMENTS_DATA[tKey][reviewUserId].push({
+    id: Date.now(),
+    userId: currentUser.id,
+    author: myNickname || currentUser.email,
+    text: inp.value.trim(),
+    ts: Date.now(),
+    replies: []
+  });
+  _persistReactionsComments();
+}
+
+function submitReply(tKey, reviewUserId, ci) {
+  if (!currentUser) { toast('로그인이 필요합니다.'); return; }
+  const inp = document.getElementById('replyInp_' + tKey + '_' + reviewUserId + '_' + ci);
+  if (!inp || !inp.value.trim()) return;
+  if (!COMMENTS_DATA[tKey]) COMMENTS_DATA[tKey] = {};
+  if (!COMMENTS_DATA[tKey][reviewUserId]) COMMENTS_DATA[tKey][reviewUserId] = [];
+  if (!COMMENTS_DATA[tKey][reviewUserId][ci]) return;
+  if (!COMMENTS_DATA[tKey][reviewUserId][ci].replies) COMMENTS_DATA[tKey][reviewUserId][ci].replies = [];
+  COMMENTS_DATA[tKey][reviewUserId][ci].replies.push({
+    id: Date.now(),
+    userId: currentUser.id,
+    author: myNickname || currentUser.email,
+    text: inp.value.trim(),
+    ts: Date.now()
+  });
+  _persistReactionsComments();
+}
+
+function deleteComment(tKey, reviewUserId, ci, ri) {
+  if (!currentUser) return;
+  if (!COMMENTS_DATA[tKey] || !COMMENTS_DATA[tKey][reviewUserId]) return;
+  if (ri === null || ri === undefined) {
+    const c = COMMENTS_DATA[tKey][reviewUserId][ci];
+    if (!c || c.userId !== currentUser.id) return;
+    COMMENTS_DATA[tKey][reviewUserId].splice(ci, 1);
+  } else {
+    const replies = COMMENTS_DATA[tKey][reviewUserId][ci]?.replies;
+    if (!replies || !replies[ri] || replies[ri].userId !== currentUser.id) return;
+    replies.splice(ri, 1);
+  }
+  _persistReactionsComments();
+}
+
+function toggleReaction(tKey, reviewUserId, type) {
+  if (!currentUser) { toast('로그인이 필요합니다.'); return; }
+  const myId = currentUser.id;
+  const rKey = myId + '_on_' + reviewUserId;
+  if (!REACTION_DATA[tKey]) REACTION_DATA[tKey] = {};
+  if (!REACTION_DATA[tKey][rKey]) REACTION_DATA[tKey][rKey] = { like: false, dislike: false };
+  const cur = REACTION_DATA[tKey][rKey];
+  if (type === 'like') {
+    cur.like = !cur.like;
+    if (cur.like) cur.dislike = false;
+  } else {
+    cur.dislike = !cur.dislike;
+    if (cur.dislike) cur.like = false;
+  }
+  _persistReactionsComments();
+}
+
+function _persistReactionsComments() {
+  try {
+    if (currentUser) {
+      db._reactions = REACTION_DATA;
+      db._comments = COMMENTS_DATA;
+    }
+    localStorage.setItem('wt_cached_reactions', JSON.stringify(REACTION_DATA));
+    localStorage.setItem('wt_cached_comments', JSON.stringify(COMMENTS_DATA));
+  } catch(e) {}
+  if (currentUser) syncToCloud();
+  // Re-render open review containers
+  document.querySelectorAll('[id^="cmts_"]').forEach(box => {
+    const parts = box.id.split('_');
+    if (parts.length < 3) return;
+    const reviewUserId = parts[parts.length - 1];
+    const tKey2 = parts.slice(1, parts.length - 1).join('_');
+    if (box.style.display !== 'none') {
+      const comments2 = (COMMENTS_DATA[tKey2] && COMMENTS_DATA[tKey2][reviewUserId]) || [];
+      box.innerHTML = renderCommentsHtml(tKey2, reviewUserId, comments2);
+    }
+  });
+  // Re-render the whole review container if visible
+  const detailBox = document.getElementById('detailOtherReviewsBox');
+  if (detailBox && detailBox.style.display !== 'none') {
+    const titleEl = document.getElementById('detailTitle');
+    if (titleEl) renderReviewsInContainer(titleEl.textContent || titleEl.innerText, detailBox, true);
+  }
+  const modalBody = document.getElementById('reviewsModalBody');
+  const modalTitle = document.getElementById('reviewsModalTitle');
+  if (modalBody && modalBody.closest && modalBody.closest('.modal') && modalBody.closest('.modal').style.display !== 'none') {
+    const span = modalTitle ? modalTitle.querySelector('span') : null;
+    if (span) {
+      const m = span.textContent.match(/'(.+?)'/);
+      if (m) renderReviewsInContainer(m[1], modalBody, false);
+    }
+  }
+}
+
+function openNicknameModal() {
+  if (!currentUser) return;
+  const cur = myNickname || '';
+  const newName = prompt('표시될 닉네임을 입력하세요\n(비워두면 이메일 표시)', cur);
+  if (newName === null) return;
+  const trimmed = newName.trim();
+  myNickname = trimmed;
+  try { localStorage.setItem('wt_nickname_' + currentUser.id, trimmed); } catch(e) {}
+  const el = document.getElementById('userEmailLabel');
+  if (el) el.textContent = trimmed || currentUser.email;
+  syncToCloudNow();
+  toast('닉네임이 변경되었습니다: ' + (trimmed || currentUser.email));
 }
 
 function toggleDetailOtherReviews(title) {
