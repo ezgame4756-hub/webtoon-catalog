@@ -944,11 +944,12 @@ input:focus, textarea:focus, select:focus {
           <input type="file" id="f_imgFile" accept="image/*" style="display:none;" onchange="handleImageFileUpload(event)" />
           <button id="multiImgBtn" type="button" class="btn bg_ xs" onclick="openMultiImgModal()" style="display:none; color:#6366f1; font-weight:800; border:1px solid rgba(99,102,241,0.3); background:rgba(99,102,241,0.08); padding:3px 8px;">🖼️ 다른 이미지 (<span id="multiImgCount">0</span>)</button>
           <button type="button" class="btn bg_ xs" onclick="triggerFileInput()" style="color:#10b981; font-weight:700; border:1px solid rgba(16,185,129,0.3); background:rgba(16,185,129,0.08); padding:3px 8px;">📁 파일 업로드</button>
+          <span style="font-size:11px; background:rgba(99,102,241,0.12); color:#6366f1; border:1px solid rgba(99,102,241,0.3); border-radius:6px; padding:3px 8px; font-weight:800; display:inline-flex; align-items:center; gap:3px;" title="이미지를 복사한 후 어디서든 Ctrl+V를 누르면 바로 등록됩니다!">📋 Ctrl+V 붙여넣기</span>
           <button type="button" class="btn bg_ xs" onclick="openExtSearch()" style="color:var(--primary-color); font-weight:700;">🔍 웹에서 찾기</button>
           <button id="clearImgBtn" type="button" class="btn bd xs" onclick="clearCoverImage()" style="display:none; font-weight:700; padding:3px 8px;" title="선택한 이미지 제거">✕ 초기화</button>
         </div>
       </div>
-      <input id="f_imgUrl" type="text" placeholder="웹 링크를 입력하거나 [📁 파일 업로드]로 내 사진을 직접 첨부하세요" oninput="onImgUrlChange()" />
+      <input id="f_imgUrl" type="text" placeholder="웹 링크 입력 또는 클립보드 이미지 복사 후 Ctrl+V 로 바로 붙여넣기" oninput="onImgUrlChange()" />
       <div id="imgStatusMsg" style="font-size:11px; color:var(--text-muted); margin-top:4px;"></div>
     </div>
 
@@ -1784,6 +1785,25 @@ async function adminSetFirstRegistrant(title, imgUrl, author, e) {
 //  UNIFIED HIGH-PERFORMANCE COMMUNITY & PUBLIC LIST LOADER
 //  (단 1회의 쿼리로 커뮤니티 표지 + 공개 리스트를 통합 로딩하여 10배 이상 가속!)
 // ══════════════════════════════════════════════════════
+// Safe storage helper with quota management to ensure 0ms instant loading
+function safeCacheSet(key, value) {
+  try {
+    const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+    localStorage.setItem(key, serialized);
+  } catch (err) {
+    console.warn('Storage quota exceeded on [' + key + '], cleaning non-critical cache...', err);
+    try {
+      // Clear huge thumbnail caches first to protect critical reviews and public lists
+      localStorage.removeItem('wt_cached_community_list');
+      localStorage.removeItem('wt_cached_community_presets');
+      const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+      localStorage.setItem(key, serialized);
+    } catch (e2) {
+      console.warn('Failed to cache [' + key + '] even after cleanup');
+    }
+  }
+}
+
 let isFetchingCommunityAndPublic = false;
 async function fetchCommunityAndPublicLists(showToast) {
   if (!spClient || isFetchingCommunityAndPublic) return;
@@ -1963,12 +1983,17 @@ async function fetchCommunityAndPublicLists(showToast) {
 
     // Cache community presets & list into localStorage for instant 0ms access
     try {
-      localStorage.setItem('wt_cached_community_presets', JSON.stringify(COMMUNITY_PRESETS));
-      localStorage.setItem('wt_cached_community_list', JSON.stringify(COMMUNITY_PRESETS_LIST));
-      localStorage.setItem('wt_cached_community_reviews', JSON.stringify(COMMUNITY_REVIEWS));
-      localStorage.setItem('wt_cached_public_lists', JSON.stringify(publicLists));
-      localStorage.setItem('wt_cached_reactions', JSON.stringify(REACTION_DATA));
-      localStorage.setItem('wt_cached_comments', JSON.stringify(COMMENTS_DATA));
+      // Priority 1: Critical UI caches (Public lists, reviews, reactions, comments)
+      safeCacheSet('wt_cached_public_lists', publicLists);
+      safeCacheSet('wt_cached_community_reviews', COMMUNITY_REVIEWS);
+      safeCacheSet('wt_cached_reactions', REACTION_DATA);
+      safeCacheSet('wt_cached_comments', COMMENTS_DATA);
+      // Priority 2: Thumbnail presets
+      safeCacheSet('wt_cached_community_presets', COMMUNITY_PRESETS);
+      // Only cache community list if small enough
+      if (COMMUNITY_PRESETS_LIST.length < 500) {
+        safeCacheSet('wt_cached_community_list', COMMUNITY_PRESETS_LIST);
+      }
     } catch(e) {}
 
     // Refresh any open review views with fresh cloud data
@@ -2205,6 +2230,29 @@ function renderPublicListsModal(query, sortType) {
 
     container.appendChild(card);
   });
+}
+
+function handleViewAuthorCollection(btn) {
+  const uid = btn.dataset.authoruid;
+  const author = btn.dataset.authorname;
+  viewAuthorCollection(uid, author);
+}
+
+function viewAuthorCollection(userId, authorName) {
+  if (!userId) return;
+  if (currentUser && currentUser.id === userId) {
+    toast('내가 작성한 감상평입니다! 👤 (내 서재를 보는 중)');
+    return;
+  }
+  const isPublic = (publicLists || []).some(p => p.user_id === userId);
+  if (!isPublic) {
+    toast(`'${authorName}' 님은 현재 서재를 비공개 상태로 설정해두었습니다. 🔒`);
+    return;
+  }
+  cl('detMdl');
+  cl('reviewsMdl');
+  selectAndClosePublicList(userId);
+  toast(`🌐 '${authorName}' 님의 공개 컬렉션으로 이동했습니다!`);
 }
 
 function selectAndClosePublicList(userId) {
@@ -3886,9 +3934,12 @@ function renderReviewsInContainer(title, container, excludeMyOwn) {
     html += '<div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 2px 6px rgba(0,0,0,0.1);">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">';
     html += '<div style="display:flex;align-items:center;gap:6px;">';
-    html += '<span style="font-weight:800;font-size:13px;color:var(--text-main);">👤 ' + escapeHtml(r.author) + '</span>';
+        const authorBadge = isMe 
+      ? '<span style="font-size:10px;background:rgba(16,185,129,0.15);color:#10b981;font-weight:800;padding:2px 6px;border-radius:4px;">나의 감상평</span>'
+      : '<button type="button" data-authoruid="' + escapeHtml(r.userId) + '" data-authorname="' + escapeHtml(r.author) + '" onclick="handleViewAuthorCollection(this)" style="background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);color:var(--primary-color);font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;" title="이 사용자의 서재 둘러보기">📚 서재 보기</button>';
+html += '<span style="font-weight:800;font-size:13px;color:var(--text-main);">👤 ' + escapeHtml(r.author) + '</span>';
     if (r.authorTitle) html += '<span style="font-size:10px;background:rgba(99,102,241,0.15);color:#6366f1;font-weight:800;padding:2px 7px;border-radius:6px;">' + escapeHtml(r.authorTitle) + '</span>';
-    if (isMe) html += '<span style="font-size:10px;background:rgba(16,185,129,0.15);color:#10b981;font-weight:800;padding:2px 6px;border-radius:4px;">나의 감상평</span>';
+    html += authorBadge;
     html += '</div>';
     html += '<div style="display:flex;align-items:center;gap:6px;">';
     if (tierObj) html += '<span class="ribbon ' + tierObj.cls + '" style="position:static;font-size:11px;padding:3px 8px;border-radius:6px;">' + tierObj.name + '</span>';
@@ -4133,8 +4184,8 @@ function _persistReactionsComments() {
       db._reactions = REACTION_DATA;
       db._comments = COMMENTS_DATA;
     }
-    localStorage.setItem('wt_cached_reactions', JSON.stringify(REACTION_DATA));
-    localStorage.setItem('wt_cached_comments', JSON.stringify(COMMENTS_DATA));
+    safeCacheSet('wt_cached_reactions', REACTION_DATA);
+    safeCacheSet('wt_cached_comments', COMMENTS_DATA);
   } catch(e) {}
   if (currentUser) syncToCloud();
 
@@ -4290,7 +4341,7 @@ function showDetail(id) {
             </span>
             <span id="detailOtherReviewsArrow" style="font-size:12px; color:#6366f1; font-weight:800;">▼ 펼치기</span>
           </button>
-          <div id="detailOtherReviewsBox" style="display:none; margin-top:10px; max-height:280px; overflow-y:auto; flex-direction:column; gap:10px; padding-right:2px;">
+          <div id="detailOtherReviewsBox" style="display:none; margin-top:10px; max-height:380px; overflow-y:auto; flex-direction:column; gap:10px; padding-right:4px;">
           </div>
         </div>
       `;
@@ -4410,6 +4461,57 @@ function toast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('on'), 2500);
 }
+
+// Global Clipboard Paste (Ctrl+V) support for webtoon cover images
+document.addEventListener('paste', function(e) {
+  const addMdl = document.getElementById('addMdl');
+  // Only handle paste when add/edit modal is open
+  if (!addMdl || addMdl.style.display === 'none') return;
+
+  const clipboardData = e.clipboardData || window.clipboardData;
+  if (!clipboardData) return;
+
+  // 1. Check if clipboard contains an image file binary
+  const items = clipboardData.items;
+  let imageFile = null;
+  if (items) {
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type && items[i].type.startsWith('image/')) {
+        imageFile = items[i].getAsFile();
+        break;
+      }
+    }
+  }
+
+  if (imageFile) {
+    e.preventDefault();
+    toast('📋 클립보드 이미지를 감지했습니다! 최적화 등록 중... ⏳');
+    processImageFile(imageFile);
+    return;
+  }
+
+  // 2. Check if clipboard contains image URL text
+  const text = clipboardData.getData('text/plain');
+  if (text && text.trim()) {
+    const trimmed = text.trim();
+    const isImgUrl = trimmed.startsWith('data:image/') || 
+      /\.(jpeg|jpg|gif|png|webp|bmp)(\?.*)?$/i.test(trimmed) ||
+      trimmed.includes('pstatic.net') || trimmed.includes('daumcdn.net') || trimmed.includes('kakao.com');
+    
+    // If not focused on other text inputs (title, tags, note, etc.)
+    const active = document.activeElement;
+    const isOtherInput = active && (active.id === 'f_title' || active.id === 'f_tags' || active.id === 'f_note' || active.id === 'f_ch');
+    if (isImgUrl && !isOtherInput) {
+      e.preventDefault();
+      const imgInp = document.getElementById('f_imgUrl');
+      if (imgInp) {
+        imgInp.value = trimmed;
+        onImgUrlChange();
+        toast('📋 클립보드 이미지 링크가 커버로 등록되었습니다! ✨');
+      }
+    }
+  }
+});
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') ['addMdl','catMdl','detMdl','authMdl','configMdl','adminTitleMdl','publicListsMdl','folderSwitcherMdl','multiImgMdl','tierRankMdl','reviewsMdl'].forEach(cl);
