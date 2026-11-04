@@ -746,7 +746,7 @@ input:focus, textarea:focus, select:focus {
   </div>
 
   <!-- Header / Toolbar (Sticky at Top & Mobile Responsive) -->
-  <div class="main-toolbar" style="padding:14px 24px; border-bottom:1px solid var(--border-color); display:flex; align-items:center; gap:12px; background:var(--bg-card); position:sticky; top:0; z-index:20; flex-shrink:0;">
+  <div class="main-toolbar" style="padding:12px 20px; border-bottom:1px solid var(--border-color); display:flex; align-items:center; gap:9px; background:var(--bg-card); position:sticky; top:0; z-index:20; flex-shrink:0; flex-wrap:nowrap; overflow-x:auto;">
     <button class="btn bg_ sm md:hidden" onclick="toggleSidebar(true)" style="padding:6px 10px; font-size:20px;">☰</button>
     
     <div id="catSwitcherBtn" onclick="openFolderSwitcher(event)" style="cursor:pointer; display:flex; align-items:center; gap:6px; min-width:0; flex-shrink:1; padding:4px 8px; border-radius:10px; border:1px solid transparent; transition:all 0.15s;" title="클릭하여 다른 폴더로 전환">
@@ -762,13 +762,13 @@ input:focus, textarea:focus, select:focus {
     <div style="flex:1;"></div>
 
     <!-- AI Taste Recommendation Button in Toolbar -->
-    <button class="btn sm" onclick="openRecommendModal()" title="내 인생작/고티어 기반 취향 맞춤 웹툰 추천" style="font-weight:800; font-size:13px; padding:8px 12px; display:inline-flex; align-items:center; gap:6px; background:linear-gradient(135deg, rgba(245,158,11,0.14), rgba(99,102,241,0.14)); border:1.5px solid rgba(245,158,11,0.45); color:var(--text-main); cursor:pointer;">
-      <span style="font-size:15px;">🎯</span>
+    <button class="btn sm" onclick="openRecommendModal()" title="내 인생작/고티어 기반 취향 맞춤 웹툰 추천" style="font-weight:800; font-size:12.5px; padding:7px 11px; display:inline-flex; align-items:center; gap:5px; background:linear-gradient(135deg, rgba(245,158,11,0.14), rgba(99,102,241,0.14)); border:1.5px solid rgba(245,158,11,0.45); color:var(--text-main); cursor:pointer; white-space:nowrap; flex-shrink:0;">
+      <span style="font-size:14px;">🎯</span>
       <span style="font-weight:900; color:#f59e0b;">취향 추천</span>
     </button>
 
     <!-- Public Lists Explorer Button in Toolbar -->
-    <button class="btn bs sm" onclick="openPublicListsModal()" title="모두의 공개 리스트 둘러보기" style="font-weight:700; font-size:13px; padding:8px 12px; display:inline-flex; align-items:center; gap:6px;">
+    <button class="btn bs sm" onclick="openPublicListsModal()" title="모두의 공개 리스트 둘러보기" style="font-weight:700; font-size:12.5px; padding:7px 11px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; flex-shrink:0;">
       <span>🌐</span>
       <span style="font-weight:700;">공개 리스트</span>
       <span id="publicCountBadgeHeader" style="font-size:10px; background:var(--primary-color); color:#fff; border-radius:8px; padding:1px 5px;">0</span>
@@ -777,7 +777,7 @@ input:focus, textarea:focus, select:focus {
 
 
     <!-- Laptop Search & Filters -->
-    <div class="search-box-wrapper" style="position:relative; width:220px;">
+    <div class="search-box-wrapper" style="position:relative; width:clamp(140px, 16vw, 200px); flex-shrink:1;">
       <input id="searchQ" type="text" placeholder="제목, 장르, 메모 검색..." style="padding:8px 12px 8px 34px; font-size:13px; border-radius:10px;" oninput="render()" />
       <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); opacity:0.5; font-size:13px;">🔍</span>
     </div>
@@ -789,20 +789,17 @@ input:focus, textarea:focus, select:focus {
             <option value="added">🕒 최근 추가순</option>
     </select>
 
-    <!-- Dark/Light Mode Toggle -->
-    <button class="btn bs sm" onclick="toggleTheme()" id="themeBtn" title="다크/라이트 모드 전환" style="font-size:15px; padding:8px 12px;">🌙</button>
-
     <!-- Adult Webtoon Hide/Show Toggle -->
-    <button id="adultToggleBtn" class="btn bs sm" onclick="toggleHideAdult()" title="19세 이상 성인 웹툰 숨기기/보이기" style="font-size:12.5px; padding:8px 12px; font-weight:800; display:inline-flex; align-items:center; gap:5px;">
+    <button id="adultToggleBtn" class="btn bs sm" onclick="toggleHideAdult()" title="19세 이상 성인 웹툰 숨기기/보이기" style="font-size:12.5px; padding:7px 11px; font-weight:800; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; flex-shrink:0;">
       <span id="adultToggleIcon">🔞</span>
       <span id="adultToggleText">성인 표시</span>
     </button>
 
-        <button id="batchModeBtn" class="btn bs sm" onclick="toggleBatchMode()" title="여러 웹툰을 한 번에 선택하여 카탈로그/티어 일괄 변경" style="font-size:13px; padding:8px 14px; font-weight:700; display:inline-flex; align-items:center; gap:5px;">
+    <button id="batchModeBtn" class="btn bs sm" onclick="toggleBatchMode()" title="여러 웹툰을 한 번에 선택하여 카탈로그/티어 일괄 변경" style="font-size:12.5px; padding:7px 12px; font-weight:700; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; flex-shrink:0;">
       <span>☑️</span>
       <span id="batchModeBtnText">일괄 관리</span>
     </button>
-    <button id="mainAddBtn" class="btn bp" onclick="openAddModal()" style="font-size:14px; padding:8px 18px;">＋ 웹툰 추가</button>
+    <button id="mainAddBtn" class="btn bp" onclick="openAddModal()" style="font-size:13.5px; padding:7px 16px; font-weight:800; white-space:nowrap; flex-shrink:0;">＋ 웹툰 추가</button>
   </div>
 
   <!-- Batch Action Bar (Sticky Toolbar when Batch Mode is ON) -->
@@ -3178,31 +3175,13 @@ async function adminDeleteSharedWebtoon(wtId, e) {
   }
 }
 
+// Dark Mode is permanently locked by design
 function toggleTheme() {
-  const html = document.documentElement;
-  const btn = document.getElementById('themeBtn');
-  if (html.classList.contains('dark')) {
-    html.classList.remove('dark');
-    btn.textContent = '☀️';
-    /* theme light */
-  } else {
-    html.classList.add('dark');
-    btn.textContent = '🌙';
-    /* theme dark */
-  }
+  document.documentElement.classList.add('dark');
 }
 
 function initTheme() {
-  const saved = 'dark';
-  const html = document.documentElement;
-  const btn = document.getElementById('themeBtn');
-  if (saved === 'dark') {
-    html.classList.add('dark');
-    if (btn) btn.textContent = '🌙';
-  } else {
-    html.classList.remove('dark');
-    if (btn) btn.textContent = '☀️';
-  }
+  document.documentElement.classList.add('dark');
 }
 
 function toggleSidebar(open) {
