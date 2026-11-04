@@ -780,6 +780,12 @@ input:focus, textarea:focus, select:focus {
     <!-- Dark/Light Mode Toggle -->
     <button class="btn bs sm" onclick="toggleTheme()" id="themeBtn" title="다크/라이트 모드 전환" style="font-size:15px; padding:8px 12px;">🌙</button>
 
+    <!-- Adult Webtoon Hide/Show Toggle -->
+    <button id="adultToggleBtn" class="btn bs sm" onclick="toggleHideAdult()" title="19세 이상 성인 웹툰 숨기기/보이기" style="font-size:12.5px; padding:8px 12px; font-weight:800; display:inline-flex; align-items:center; gap:5px;">
+      <span id="adultToggleIcon">🔞</span>
+      <span id="adultToggleText">성인 표시</span>
+    </button>
+
         <button id="batchModeBtn" class="btn bs sm" onclick="toggleBatchMode()" title="여러 웹툰을 한 번에 선택하여 카탈로그/티어 일괄 변경" style="font-size:13px; padding:8px 14px; font-weight:700; display:inline-flex; align-items:center; gap:5px;">
       <span>☑️</span>
       <span id="batchModeBtnText">일괄 관리</span>
@@ -828,6 +834,15 @@ input:focus, textarea:focus, select:focus {
         <option value="completed">✅ 완독</option>
         <option value="paused">⏸️ 중단</option>
         <option value="plan">⏳ 읽을 예정</option>
+      </select>
+
+      <!-- Platform Batch Change Dropdown -->
+      <select id="batchPlatSelect" onchange="applyBatchPlatform(this.value)" style="width:auto; padding:5px 10px; font-size:12.5px; font-weight:700; background:var(--bg-card); border-radius:8px;">
+        <option value="">🌐 플랫폼 일괄 변경...</option>
+        <option value="naver">🟢 네이버</option>
+        <option value="kakao">🟡 카카오</option>
+        <option value="etc">⚪ 기타</option>
+        <option value="auto">🤖 자동 감지</option>
       </select>
 
       <button type="button" class="btn bd xs" onclick="applyBatchDelete()" style="font-weight:700; padding:5px 9px;">🗑️ 삭제</button>
@@ -1021,6 +1036,7 @@ input:focus, textarea:focus, select:focus {
       <div style="position:relative;">
         <label class="lbl">웹툰 제목 *</label>
         <input id="f_title" type="text" placeholder="예: 참교육, 전지적 독자 시점..." oninput="onTitleChange()" autocomplete="off" />
+        <div id="dupTitleWarn" style="display:none;"></div>
         <div id="titleSuggestBox" style="display:none; position:absolute; left:0; right:0; top:100%; background:var(--bg-card); border:1px solid var(--border-color); border-radius:10px; margin-top:4px; max-height:190px; overflow-y:auto; z-index:50; box-shadow:0 10px 25px rgba(0,0,0,0.25);"></div>
       </div>
       <div>
@@ -1082,12 +1098,25 @@ input:focus, textarea:focus, select:focus {
       </div>
     </div>
 
-    <!-- Progress & End & Adult (Simplified) -->
-    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
+    <!-- Platform & Chapter (2 Columns) -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div>
+        <label class="lbl">🌐 연재 플랫폼 (수정 가능)</label>
+        <select id="f_platform">
+          <option value="auto">🤖 자동 감지 (기본)</option>
+          <option value="naver">🟢 네이버 웹툰</option>
+          <option value="kakao">🟡 카카오 웹툰 / 페이지</option>
+          <option value="etc">⚪ 기타 / 자체 첨부</option>
+        </select>
+      </div>
       <div>
         <label class="lbl">진행도 / 회차</label>
         <input id="f_ch" type="text" placeholder="예: 45화, 완결" />
       </div>
+    </div>
+
+    <!-- Status & Adult (2 Columns) -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
       <div>
         <label class="lbl">🏁 연재 상태</label>
         <select id="f_isEnd">
@@ -1116,7 +1145,7 @@ input:focus, textarea:focus, select:focus {
 
   <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
     <button class="btn bs" onclick="cl('addMdl')">취소</button>
-    <button class="btn bp" onclick="saveWebtoon()"><span id="saveLabel">추가</span></button>
+    <button id="saveBtn" class="btn bp" onclick="saveWebtoon()"><span id="saveLabel">추가</span></button>
   </div>
 </div>
 </div>
@@ -1222,6 +1251,61 @@ let SUPABASE_KEY = DEFAULT_SUPABASE_KEY;
 let spClient = null;
 let currentUser = null;
 let currentViewingUserId = null;
+let hideAdult = localStorage.getItem('wt_hide_adult') === '1';
+
+function toggleHideAdult() {
+  hideAdult = !hideAdult;
+  localStorage.setItem('wt_hide_adult', hideAdult ? '1' : '0');
+  updateHideAdultUI();
+  renderAll();
+  toast(hideAdult ? '🔞 성인 웹툰이 숨겨졌습니다 (안심 모드 ON)' : '🔞 성인 웹툰을 표시합니다');
+}
+
+function updateHideAdultUI() {
+  const btn = document.getElementById('adultToggleBtn');
+  const icon = document.getElementById('adultToggleIcon');
+  const text = document.getElementById('adultToggleText');
+  if (!btn) return;
+  if (hideAdult) {
+    btn.className = 'btn bd sm';
+    btn.style.background = 'rgba(239, 68, 68, 0.15)';
+    btn.style.color = '#ef4444';
+    btn.style.borderColor = '#ef4444';
+    if (text) text.textContent = '성인 숨김 ON';
+    if (icon) icon.textContent = '🙈';
+  } else {
+    btn.className = 'btn bs sm';
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    if (text) text.textContent = '성인 표시';
+    if (icon) icon.textContent = '🔞';
+  }
+}
+
+function applyBatchPlatform(platVal) {
+  if (!platVal) return;
+  if (batchSelectedIds.size === 0) {
+    toast('선택된 웹툰이 없습니다. 먼저 웹툰을 선택해주세요! ⚠️');
+    document.getElementById('batchPlatSelect').value = '';
+    return;
+  }
+
+  let modified = 0;
+  (db.webtoons || []).forEach(w => {
+    if (batchSelectedIds.has(w.id)) {
+      w.platform = platVal;
+      modified++;
+    }
+  });
+
+  persist();
+  render();
+  const nameMap = { naver: '네이버', kakao: '카카오', etc: '기타', auto: '자동 감지' };
+  toast(`선택한 ${modified}개 웹툰의 플랫폼이 [${nameMap[platVal] || platVal}]로 일괄 변경되었습니다! 🌐✨`);
+  document.getElementById('batchPlatSelect').value = '';
+}
+
 let isBatchMode = false;
 let batchSelectedIds = new Set();
 
@@ -1459,10 +1543,18 @@ function fixKakaoImageUrl(url) {
 
 function getWebtoonPlatform(w) {
   if (!w) return { id: 'etc', name: '기타', emoji: '⚪', cls: 'plat-etc' };
+
+  // 1. Prioritize user explicitly assigned platform
+  if (w.platform && w.platform !== 'auto') {
+    if (w.platform === 'naver') return { id: 'naver', name: '네이버', emoji: '🟢', cls: 'plat-naver' };
+    if (w.platform === 'kakao') return { id: 'kakao', name: '카카오', emoji: '🟡', cls: 'plat-kakao' };
+    if (w.platform === 'etc')   return { id: 'etc',   name: '기타',   emoji: '⚪', cls: 'plat-etc' };
+  }
+
   const img = (w.imageUrl || '').toLowerCase();
   const cleanTitle = (w.title || '').toLowerCase().replace(/\s+/g, '');
 
-  // 1. Check Image URL domain
+  // 2. Check Image URL domain
   if (img.includes('pstatic.net') || img.includes('naver.com') || img.includes('naver.net')) {
     return { id: 'naver', name: '네이버', emoji: '🟢', cls: 'plat-naver' };
   }
@@ -3026,8 +3118,9 @@ function renderAll() {
 function renderSidebar() {
   const catNav = document.getElementById('catNav');
   catNav.innerHTML = '';
+  const availableList = hideAdult ? db.webtoons.filter(w => !w.isAdult) : db.webtoons;
   db.catalogs.forEach(cat => {
-    const cnt = cat.id === 'all' ? db.webtoons.length : db.webtoons.filter(w => w.catId === cat.id).length;
+    const cnt = cat.id === 'all' ? availableList.length : availableList.filter(w => w.catId === cat.id).length;
     const el = document.createElement('div');
     el.className = 'nav-item' + (db.curCat === cat.id && !db.curTier && !db.curStatus ? ' active' : '');
     el.innerHTML = `<span>${cat.emoji}</span><span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${cat.name}</span><span class="cnt">${cnt}</span>${(!cat.sys && !currentViewingUserId) ? `<span onclick="delCat('${cat.id}',event)" style="opacity:0.4; font-size:12px; padding:2px 4px;">✕</span>` : ''}`;
@@ -3094,6 +3187,7 @@ function render() {
   const sort = document.getElementById('sortSel').value;
 
   let list = [...db.webtoons];
+  if (hideAdult) list = list.filter(w => !w.isAdult);
   if (db.curCat !== 'all') list = list.filter(w => w.catId === db.curCat);
   if (db.curTier) list = list.filter(w => w.tier === db.curTier);
   if (db.curStatus) list = list.filter(w => w.status === db.curStatus);
@@ -3407,6 +3501,9 @@ function onTitleChange() {
   updateEditReviewButton(raw);
   updateFirstRegistrantUI(raw);
 
+  // Realtime Duplicate Check & UI Lock
+  const isDuplicate = checkTitleDuplicateAndLockUI(raw);
+
   if (!clean) {
     suggestBox.style.display = 'none';
     return;
@@ -3516,7 +3613,25 @@ function onTitleChange() {
   }
 
   if (candidates.length > 0) {
-    suggestBox.innerHTML = candidates.map(c => `
+    suggestBox.innerHTML = candidates.map(c => {
+      const dup = findDuplicateWebtoon(c.title, editId);
+      if (dup) {
+        return `
+        <div class="candidate-item" style="opacity:0.45; background:rgba(239,68,68,0.08); cursor:not-allowed;" onclick="toast('⛔ 이미 서재에 등록되어 있는 웹툰입니다!')">
+          <img src="${c.imgUrl}" referrerpolicy="no-referrer" style="width:32px; height:44px; object-fit:cover; border-radius:6px; flex-shrink:0; filter:grayscale(70%);" />
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-decoration:line-through; color:var(--text-muted);">${escapeHtml(c.title)}</span>
+              <span style="font-size:9.5px; background:#ef4444; color:#fff; font-weight:800; padding:1px 5px; border-radius:6px;">이미 등록됨</span>
+            </div>
+            <span style="font-size:10px; font-weight:800; display:inline-flex; align-items:center; gap:3px;">
+              ${c.source === '유저공유' ? `<span style="color:#f59e0b;">👑 최초 등록자 (${escapeHtml(c.author || '')})</span>` : (c.platform === 'kakao' ? '<span class="plat-badge plat-kakao">🟡 카카오 공식</span>' : '<span class="plat-badge plat-naver">🟢 네이버 공식</span>')}
+            </span>
+          </div>
+          <span style="font-size:11px; font-weight:800; color:#ef4444; flex-shrink:0;">중복</span>
+        </div>`;
+      }
+      return `
       <div class="candidate-item" onclick="selectPreset('${escapeHtml(c.title)}', '${c.imgUrl}', ${c.source === '유저공유'}, '${escapeHtml(c.author || '')}')">
         <img src="${c.imgUrl}" referrerpolicy="no-referrer" style="width:32px; height:44px; object-fit:cover; border-radius:6px; flex-shrink:0;" />
         <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
@@ -3526,8 +3641,8 @@ function onTitleChange() {
           </span>
         </div>
         <span style="font-size:12px; font-weight:700; color:var(--primary-color); flex-shrink:0;">선택</span>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
     suggestBox.style.display = 'block';
   } else {
     suggestBox.style.display = 'none';
@@ -3537,6 +3652,7 @@ function onTitleChange() {
 
 function selectPreset(title, imgUrl, isCommunity, author) {
   document.getElementById('f_title').value = title;
+  checkTitleDuplicateAndLockUI(title);
   setImageUrl(imgUrl);
   const meta = applyMetaForTitle(title);
 
@@ -3804,6 +3920,7 @@ function migrateWebtoonsArray(arr) {
 
 function migrateExistingWebtoonsMetadata() {
   if (!db || !db.webtoons || !db.webtoons.length) return false;
+  cleanDuplicateWebtoons(false);
   const changed = migrateWebtoonsArray(db.webtoons);
   if (changed && !currentViewingUserId) {
     persist();
@@ -3934,10 +4051,12 @@ function openAddModal() {
   editId = null;
   document.getElementById('addTitle').textContent = '새 웹툰 추가';
   document.getElementById('saveLabel').textContent = '추가';
+  checkTitleDuplicateAndLockUI('');
   ['f_title', 'f_imgUrl', 'f_ch', 'f_note'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('f_status').value = 'reading';
   document.getElementById('f_tier').value = '';
   document.getElementById('f_isEnd').value = 'false';
+  if (document.getElementById('f_platform')) document.getElementById('f_platform').value = 'auto';
   document.getElementById('f_isAdult').checked = false;
   document.getElementById('titleSuggestBox').style.display = 'none';
   document.getElementById('imgStatusMsg').innerHTML = ''; // 이전 웹툰 안내 텍스트 잔존 방지
@@ -4061,6 +4180,7 @@ function editWt(id, e) {
   document.getElementById('f_tier').value = w.tier || '';
   document.getElementById('f_status').value = w.status || 'reading';
   document.getElementById('f_ch').value = w.chapter || '';
+  if (document.getElementById('f_platform')) document.getElementById('f_platform').value = w.platform || 'auto';
   document.getElementById('f_isEnd').value = w.isEnd ? 'true' : 'false';
   document.getElementById('f_isAdult').checked = !!w.isAdult;
   document.getElementById('f_note').value = w.note || '';
@@ -4082,9 +4202,136 @@ function popCatSelect(selectedId) {
   else if (db.curCat !== 'all') sel.value = db.curCat;
 }
 
+// ─── Duplicate Webtoon Detection & Normalization ───
+function getWebtoonKey(title) {
+  if (!title) return '';
+  return title
+    .toLowerCase()
+    .replace(/\[[^\]]*\]|\([^\)]*\)/g, '')
+    .replace(/[\s\-_:;,\.\[\]\(\)\{\}\<\>\'\"`~!@#\$%\^&\*\+=\\/|?]/g, '');
+}
+
+function getSimpleTitleKey(title) {
+  return (title || '').toLowerCase().replace(/\s+/g, '');
+}
+
+function findDuplicateWebtoon(title, currentId = null) {
+  if (!title || !title.trim()) return null;
+  const rawClean = title.trim().toLowerCase();
+  const simpleKey = getSimpleTitleKey(title);
+  const normKey = getWebtoonKey(title);
+
+  return (db.webtoons || []).find(w => {
+    if (currentId && w.id === currentId) return false;
+    const wTitle = (w.title || '').trim().toLowerCase();
+    if (!wTitle) return false;
+    if (wTitle === rawClean) return true;
+    const wSimple = getSimpleTitleKey(w.title);
+    if (wSimple === simpleKey) return true;
+    if (normKey && normKey.length >= 2) {
+      const wNorm = getWebtoonKey(w.title);
+      if (wNorm === normKey) return true;
+    }
+    return false;
+  });
+}
+
+function checkTitleDuplicateAndLockUI(title) {
+  const warnEl = document.getElementById('dupTitleWarn');
+  const titleInput = document.getElementById('f_title');
+  const saveBtn = document.getElementById('saveBtn');
+  const saveLabel = document.getElementById('saveLabel');
+  if (!warnEl || !titleInput || !saveBtn) return null;
+
+  if (!title || !title.trim()) {
+    warnEl.style.display = 'none';
+    warnEl.innerHTML = '';
+    titleInput.style.borderColor = '';
+    saveBtn.disabled = false;
+    saveBtn.style.opacity = '1';
+    saveBtn.style.cursor = 'pointer';
+    saveBtn.style.pointerEvents = 'auto';
+    if (saveLabel) saveLabel.textContent = editId ? '저장' : '추가';
+    return null;
+  }
+
+  const dup = findDuplicateWebtoon(title, editId);
+  if (dup) {
+    warnEl.innerHTML = `
+      <div style="margin-top:6px; padding:9px 12px; background:rgba(239,68,68,0.12); border:1.5px solid #ef4444; border-radius:10px; display:flex; align-items:center; gap:10px;">
+        <span style="font-size:20px;">⛔</span>
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:12.5px; font-weight:800; color:#ef4444;">이미 내 서재에 등록되어 있는 웹툰입니다!</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+            기존 등록작: <span style="font-weight:800; color:var(--text-main);">'${escapeHtml(dup.title)}'</span>
+            ${dup.tier ? ` <span style="font-size:10px; background:rgba(99,102,241,0.2); color:#6366f1; padding:1px 5px; border-radius:4px; font-weight:700;">${dup.tier}티어</span>` : ''}
+            <span style="color:#ef4444; font-weight:700; margin-left:4px;">(중복 등록 차단됨)</span>
+          </div>
+        </div>
+      </div>
+    `;
+    warnEl.style.display = 'block';
+    titleInput.style.borderColor = '#ef4444';
+    saveBtn.disabled = true;
+    saveBtn.style.opacity = '0.35';
+    saveBtn.style.cursor = 'not-allowed';
+    saveBtn.style.pointerEvents = 'none';
+    if (saveLabel) saveLabel.textContent = '🚫 중복 등록 불가';
+    return dup;
+  } else {
+    warnEl.style.display = 'none';
+    warnEl.innerHTML = '';
+    titleInput.style.borderColor = '';
+    saveBtn.disabled = false;
+    saveBtn.style.opacity = '1';
+    saveBtn.style.cursor = 'pointer';
+    saveBtn.style.pointerEvents = 'auto';
+    if (saveLabel) saveLabel.textContent = editId ? '저장' : '추가';
+    return null;
+  }
+}
+
+function cleanDuplicateWebtoons(showNotification = false) {
+  if (!db || !db.webtoons || db.webtoons.length <= 1) return 0;
+  const seenKeys = new Set();
+  const uniqueList = [];
+  let removedCount = 0;
+
+  for (const w of db.webtoons) {
+    const norm = getWebtoonKey(w.title) || getSimpleTitleKey(w.title);
+    if (!norm) {
+      uniqueList.push(w);
+      continue;
+    }
+    if (seenKeys.has(norm)) {
+      removedCount++;
+    } else {
+      seenKeys.add(norm);
+      uniqueList.push(w);
+    }
+  }
+
+  if (removedCount > 0) {
+    db.webtoons = uniqueList;
+    if (!currentViewingUserId) persist();
+    if (showNotification) {
+      toast(`🧹 서재에 이미 중복되어 있던 웹툰 ${removedCount}편을 깔끔하게 정리했습니다!`);
+    }
+  }
+  return removedCount;
+}
+
 function saveWebtoon() {
   const title = document.getElementById('f_title').value.trim();
   if (!title) { toast('웹툰 제목을 입력해주세요!'); return; }
+  // Strict Duplicate Webtoon Check
+  const dupWebtoon = findDuplicateWebtoon(title, editId);
+  if (dupWebtoon) {
+    toast(`⛔ 이미 서재에 등록되어 있는 웹툰입니다! ('${dupWebtoon.title}')`);
+    checkTitleDuplicateAndLockUI(title);
+    return;
+  }
+
   const tier = document.getElementById('f_tier').value;
   if (tier === 'fav') {
     const dupFav = (db.webtoons || []).find(w => w.tier === 'fav' && w.id !== editId);
@@ -4105,13 +4352,15 @@ function saveWebtoon() {
   if (editId) {
     const idx = db.webtoons.findIndex(w => w.id === editId);
     if (idx >= 0) {
-      Object.assign(db.webtoons[idx], { title, tier, status, catId, rating, chapter, genre, publishDay, isEnd, isAdult, tags, note, imageUrl });
+      const platform = document.getElementById('f_platform') ? document.getElementById('f_platform').value : 'auto';
+      Object.assign(db.webtoons[idx], { title, tier, status, catId, rating, chapter, genre, publishDay, isEnd, isAdult, tags, note, imageUrl, platform });
       toast(`'${title}' 수정 완료! ✨`);
     }
   } else {
+    const platform = document.getElementById('f_platform') ? document.getElementById('f_platform').value : 'auto';
     db.webtoons.push({
       id: Date.now() + '',
-      title, tier, status, catId, rating, chapter, genre, publishDay, isEnd, isAdult, tags, note, imageUrl,
+      title, tier, status, catId, rating, chapter, genre, publishDay, isEnd, isAdult, tags, note, imageUrl, platform,
       addedAt: Date.now()
     });
     toast(`'${title}' 추가 완료! 🎉`);
@@ -4753,6 +5002,7 @@ function importData(e) {
       const data = JSON.parse(evt.target.result);
       if (data.catalogs && data.webtoons) {
         db = data;
+        cleanDuplicateWebtoons(true);
         persist();
         renderAll();
         toast('데이터가 성공적으로 복원되었습니다! 🎉');
