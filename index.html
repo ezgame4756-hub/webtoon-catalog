@@ -1673,8 +1673,8 @@ function initSupabase() {
   if (SUPABASE_URL && SUPABASE_KEY && window.supabase) {
     try {
       spClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-      // Immediately start fetching community reviews & public lists in parallel! (0ms wait)
-      fetchCommunityAndPublicLists();
+      // Pre-load from local cache first to save 100% egress traffic
+      tryRestoreCommunityCache();
       listenAuthState();
     } catch(e) {
       console.warn("Supabase init error:", e);
@@ -2306,14 +2306,51 @@ function safeCacheSet(key, value) {
 }
 
 let isFetchingCommunityAndPublic = false;
-async function fetchCommunityAndPublicLists(showToast) {
-  if (!spClient || isFetchingCommunityAndPublic) return;
+let lastCommunityFetchTs = Number(localStorage.getItem('wt_last_comm_fetch_ts') || 0);
+const COMMUNITY_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes cache to strictly keep egress under Free Plan
+
+function tryRestoreCommunityCache() {
+  try {
+    const cachedPub = localStorage.getItem('wt_cached_public_lists');
+    const cachedRev = localStorage.getItem('wt_cached_community_reviews');
+    const cachedPre = localStorage.getItem('wt_cached_community_presets');
+    const cachedRea = localStorage.getItem('wt_cached_reactions');
+    const cachedCmt = localStorage.getItem('wt_cached_comments');
+
+    if (cachedPub) publicLists = JSON.parse(cachedPub);
+    if (cachedRev) COMMUNITY_REVIEWS = JSON.parse(cachedRev);
+    if (cachedPre) COMMUNITY_PRESETS = JSON.parse(cachedPre);
+    if (cachedRea) REACTION_DATA = JSON.parse(cachedRea);
+    if (cachedCmt) COMMENTS_DATA = JSON.parse(cachedCmt);
+
+    updatePublicCountBadges();
+  } catch(e) {
+    console.warn("Cache restore notice:", e);
+  }
+}
+
+async function fetchCommunityAndPublicLists(force = false) {
+  if (!spClient) return;
+  const now = Date.now();
+  const showToast = force === true;
+
+  // Egress Bandwidth Shield: Skip heavy cloud query if within 10-min cache
+  if (!force && lastCommunityFetchTs && (now - lastCommunityFetchTs < COMMUNITY_CACHE_TTL_MS)) {
+    tryRestoreCommunityCache();
+    return; // 0 Egress Bandwidth consumed!
+  }
+
+  if (isFetchingCommunityAndPublic) return;
   isFetchingCommunityAndPublic = true;
+
   try {
     const { data, error } = await spClient
       .from('user_webtoons')
       .select('*')
       .order('updated_at', { ascending: false });
+
+    lastCommunityFetchTs = Date.now();
+    try { localStorage.setItem('wt_last_comm_fetch_ts', String(lastCommunityFetchTs)); } catch(e) {}
 
     if (error) throw error;
 
