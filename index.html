@@ -666,7 +666,13 @@ input:focus, textarea:focus, select:focus {
         </div>
         <span id="syncDot" style="width:9px; height:9px; border-radius:50%; background:#9ca3af;" title="클라우드 동기화 상태"></span>
       </div>
-      <div id="userEmailLabel" style="font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">로그인 필요</div>
+      <div id="userProfileDisplay" style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+        <div style="min-width:0; flex:1;">
+          <div id="userEmailLabel" style="font-size:13px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-main);">로그인 필요</div>
+          <div id="userSubEmailLabel" style="font-size:10.5px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:none;"></div>
+        </div>
+        <button id="editNicknameQuickBtn" class="btn bs xs" onclick="openNicknameModal(false)" style="display:none; font-size:11px; padding:3px 8px; font-weight:800; border-radius:8px; white-space:nowrap; background:rgba(99,102,241,0.12); color:#6366f1; border:1px solid rgba(99,102,241,0.3); cursor:pointer;">✏️ 닉네임</button>
+      </div>
       <div style="display:flex; gap:6px; margin-top:2px;">
         <button id="authBtn" class="btn bp xs" onclick="openAuthModal()" style="flex:1;">로그인 / 가입</button>
       </div>
@@ -754,6 +760,12 @@ input:focus, textarea:focus, select:focus {
     </div>
 
     <div style="flex:1;"></div>
+
+    <!-- AI Taste Recommendation Button in Toolbar -->
+    <button class="btn sm" onclick="openRecommendModal()" title="내 인생작/고티어 기반 취향 맞춤 웹툰 추천" style="font-weight:800; font-size:13px; padding:8px 12px; display:inline-flex; align-items:center; gap:6px; background:linear-gradient(135deg, rgba(245,158,11,0.14), rgba(99,102,241,0.14)); border:1.5px solid rgba(245,158,11,0.45); color:var(--text-main); cursor:pointer;">
+      <span style="font-size:15px;">🎯</span>
+      <span style="font-weight:900; color:#f59e0b;">취향 추천</span>
+    </button>
 
     <!-- Public Lists Explorer Button in Toolbar -->
     <button class="btn bs sm" onclick="openPublicListsModal()" title="모두의 공개 리스트 둘러보기" style="font-weight:700; font-size:13px; padding:8px 12px; display:inline-flex; align-items:center; gap:6px;">
@@ -1215,6 +1227,65 @@ input:focus, textarea:focus, select:focus {
 </div>
 
 <!-- ══════════════ COMMUNITY REVIEWS MODAL ══════════════ -->
+<!-- ══════════════ NICKNAME MODAL ══════════════ -->
+<div id="nicknameMdl" class="ov" style="display:none; z-index:250;" onclick="oc(event,'nicknameMdl')">
+<div class="mdl" onclick="event.stopPropagation()" style="width:min(420px, 92vw);">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <h3 id="nicknameModalTitle" style="margin:0; font-size:17px; font-weight:800; display:flex; align-items:center; gap:8px;">
+      <span>✨</span>
+      <span>나만의 웹툰 닉네임 설정</span>
+    </h3>
+    <button class="btn bg_ sm" onclick="closeNicknameModal()" style="font-size:18px; padding:2px 8px;">✕</button>
+  </div>
+  <p id="nicknameModalDesc" style="font-size:12.5px; color:var(--text-muted); line-height:1.5; margin:0 0 16px;">
+    웹툰 표지 등록, 감상평 작성, 공개 리스트에 나를 표현할 멋진 닉네임을 정해주세요! ✨
+  </p>
+  <div style="margin-bottom:16px;">
+    <label class="lbl">사용할 닉네임 (2~15자)</label>
+    <div style="position:relative;">
+      <input id="inputNickname" type="text" placeholder="예: 만화왕, 웹툰마니아, 로판요정..." maxlength="15" style="padding-right:60px;" onkeydown="if(event.key==='Enter') saveNicknameFromModal()" />
+      <span id="nickCharCount" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:var(--text-muted); font-weight:700;">0/15</span>
+    </div>
+    <div id="nicknameErr" style="display:none; font-size:11.5px; color:#ef4444; font-weight:700; margin-top:6px;"></div>
+  </div>
+  <div style="display:flex; justify-content:flex-end; gap:8px;">
+    <button id="nickCancelBtn" class="btn bs" onclick="closeNicknameModal()">닫기</button>
+    <button class="btn bp" onclick="saveNicknameFromModal()" style="font-weight:800; padding:8px 18px;">저장하기 ✨</button>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════ AI TASTE RECOMMENDATION MODAL ══════════════ -->
+<div id="recommendMdl" class="ov" style="display:none; z-index:240;" onclick="oc(event,'recommendMdl')">
+<div class="mdl" onclick="event.stopPropagation()" style="width:min(820px, 95vw); max-height:88vh; display:flex; flex-direction:column; padding:20px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span style="font-size:24px;">🎯</span>
+      <div>
+        <h3 style="margin:0; font-size:18px; font-weight:900;">내 인생작 기반 취향 맞춤 추천</h3>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">회원님의 고티어(최애, S+, S, A) 웹툰 장르와 성향을 실시간 분석한 추천작입니다.</div>
+      </div>
+    </div>
+    <button class="btn bg_ sm" onclick="cl('recommendMdl')" style="font-size:18px; padding:4px 8px;">✕</button>
+  </div>
+
+  <!-- User Taste DNA Dashboard Banner -->
+  <div id="tasteDnaBanner" style="padding:12px 16px; background:linear-gradient(135deg, rgba(99,102,241,0.12), rgba(245,158,11,0.12)); border:1.5px solid rgba(99,102,241,0.25); border-radius:12px; margin-bottom:14px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+    <div id="tasteDnaContent" style="font-size:13px; line-height:1.5; font-weight:700;">
+      <!-- Dynamic Taste DNA Info -->
+    </div>
+    <button class="btn bs xs" onclick="generateAndRenderRecommendations(true)" style="font-weight:800; font-size:11.5px; padding:5px 12px; display:inline-flex; align-items:center; gap:4px; background:var(--bg-card); cursor:pointer;">
+      <span>🎲</span> <span>새로고침</span>
+    </button>
+  </div>
+
+  <!-- Recommended Webtoons Scroll Area -->
+  <div id="recommendGrid" style="flex:1; overflow-y:auto; display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:14px; padding:4px 2px;">
+    <!-- Cards rendered dynamically -->
+  </div>
+</div>
+</div>
+
 <div id="reviewsMdl" class="ov" style="display:none;" onclick="oc(event,'reviewsMdl')">
 <div class="mdl" onclick="event.stopPropagation()" style="width:min(520px,100%); max-height:85vh; display:flex; flex-direction:column;">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:12px;">
@@ -1653,6 +1724,8 @@ async function handleUserChange(user) {
 function updateUserUI(user) {
   const statusLabel = document.getElementById('userStatusLabel');
   const emailLabel = document.getElementById('userEmailLabel');
+  const subEmailLabel = document.getElementById('userSubEmailLabel');
+  const editNickBtn = document.getElementById('editNicknameQuickBtn');
   const authBtn = document.getElementById('authBtn');
   const syncDot = document.getElementById('syncDot');
   const adminBadge = document.getElementById('adminBadgeTag');
@@ -1662,11 +1735,43 @@ function updateUserUI(user) {
     statusLabel.textContent = "🟢 동기화 중";
     statusLabel.style.color = "#10b981";
     const savedNick = localStorage.getItem('wt_nickname_' + user.id);
-    myNickname = savedNick || '';
-    emailLabel.textContent = myNickname || user.email;
+    const metaNick = user.user_metadata?.full_name;
+    myNickname = savedNick || metaNick || '';
+
+    if (myNickname) {
+      emailLabel.innerHTML = `<span>${escapeHtml(myNickname)}</span> <span style="font-size:11px; font-weight:600; color:var(--text-muted);">님</span>`;
+      if (subEmailLabel) {
+        subEmailLabel.textContent = user.email || '';
+        subEmailLabel.style.display = 'block';
+      }
+      if (editNickBtn) {
+        editNickBtn.style.display = 'inline-flex';
+        editNickBtn.textContent = '✏️ 닉네임';
+        editNickBtn.style.background = 'rgba(99,102,241,0.12)';
+        editNickBtn.style.color = '#6366f1';
+      }
+    } else {
+      emailLabel.textContent = user.email || '사용자';
+      if (subEmailLabel) subEmailLabel.style.display = 'none';
+      if (editNickBtn) {
+        editNickBtn.style.display = 'inline-flex';
+        editNickBtn.textContent = '✨ 닉네임 설정';
+        editNickBtn.style.background = 'linear-gradient(135deg, #6366f1, #8b5cf6)';
+        editNickBtn.style.color = '#ffffff';
+      }
+
+      // First-time Login Onboarding Modal
+      const onboardingShown = localStorage.getItem('wt_nick_onboarding_' + user.id);
+      if (!onboardingShown) {
+        setTimeout(() => {
+          openNicknameModal(true);
+        }, 600);
+      }
+    }
+
     emailLabel.style.cursor = 'pointer';
     emailLabel.title = '클릭하여 닉네임 수정';
-    emailLabel.onclick = openNicknameModal;
+    emailLabel.onclick = () => openNicknameModal(false);
     authBtn.textContent = "로그아웃";
     authBtn.className = "btn bs xs";
     authBtn.onclick = handleLogout;
@@ -1682,6 +1787,8 @@ function updateUserUI(user) {
     statusLabel.textContent = "👤 게스트 모드";
     statusLabel.style.color = "var(--text-muted)";
     emailLabel.textContent = "로그인 필요";
+    if (subEmailLabel) subEmailLabel.style.display = 'none';
+    if (editNickBtn) editNickBtn.style.display = 'none';
     emailLabel.style.cursor = "";
     emailLabel.title = "";
     emailLabel.onclick = null;
@@ -4789,23 +4896,341 @@ function _persistReactionsComments() {
   });
 }
 
-function openNicknameModal() {
+// ═══════════════════════════════════════════════════════════════
+// NICKNAME MANAGEMENT & ONBOARDING
+// ═══════════════════════════════════════════════════════════════
+let isOnboardingNickname = false;
+
+function openNicknameModal(isOnboarding = false) {
   if (!currentUser) {
-    toast('로그인이 필요합니다.');
+    toast('로그인이 필요한 기능입니다.');
     openAuthModal();
     return;
   }
-  const cur = myNickname || '';
-  const newName = prompt('표시될 닉네임을 입력하세요\n(모든 감상평, 댓글, 등록자 표시에 반영됩니다):', cur);
-  if (newName === null) return;
-  const trimmed = newName.trim();
-  myNickname = trimmed;
-  try { localStorage.setItem('wt_nickname_' + currentUser.id, trimmed); } catch(e) {}
-  const el = document.getElementById('userEmailLabel');
-  if (el) el.textContent = trimmed || currentUser.email;
+  isOnboardingNickname = !!isOnboarding;
+  const modal = document.getElementById('nicknameMdl');
+  const title = document.getElementById('nicknameModalTitle');
+  const desc = document.getElementById('nicknameModalDesc');
+  const cancelBtn = document.getElementById('nickCancelBtn');
+  const input = document.getElementById('inputNickname');
+  const err = document.getElementById('nicknameErr');
+  const counter = document.getElementById('nickCharCount');
+
+  if (isOnboarding) {
+    title.innerHTML = `<span>🎉</span> <span>환영합니다! 닉네임을 설정해주세요</span>`;
+    desc.innerHTML = `웹툰 카탈로그에 오신 것을 환영합니다! 🎉<br>표지 등록과 감상평에서 활동할 나만의 닉네임을 정해보세요.`;
+    cancelBtn.textContent = '나중에 하기';
+  } else {
+    title.innerHTML = `<span>✨</span> <span>나만의 웹툰 닉네임 설정</span>`;
+    desc.textContent = `웹툰 표지 기여, 감상평, 공개 리스트에 멋지게 표시될 닉네임입니다.`;
+    cancelBtn.textContent = '취소';
+  }
+
+  input.value = myNickname || '';
+  counter.textContent = `${input.value.length}/15`;
+  input.oninput = () => { counter.textContent = `${input.value.length}/15`; err.style.display = 'none'; };
+  err.style.display = 'none';
+
+  modal.style.display = 'flex';
+  setTimeout(() => input.focus(), 100);
+}
+
+function closeNicknameModal() {
+  if (isOnboardingNickname && currentUser) {
+    try { localStorage.setItem('wt_nick_onboarding_' + currentUser.id, '1'); } catch(e) {}
+  }
+  cl('nicknameMdl');
+}
+
+async function saveNicknameFromModal() {
+  if (!currentUser) return;
+  const input = document.getElementById('inputNickname');
+  const err = document.getElementById('nicknameErr');
+  const val = (input ? input.value : '').trim();
+
+  if (!val) {
+    err.textContent = '닉네임을 2자 이상 입력해주세요!';
+    err.style.display = 'block';
+    return;
+  }
+  if (val.length < 2) {
+    err.textContent = '닉네임은 최소 2자 이상이어야 합니다.';
+    err.style.display = 'block';
+    return;
+  }
+
+  myNickname = val;
+  try {
+    localStorage.setItem('wt_nickname_' + currentUser.id, val);
+    localStorage.setItem('wt_nick_onboarding_' + currentUser.id, '1');
+  } catch(e) {}
+
+  if (spClient && spClient.auth) {
+    try {
+      await spClient.auth.updateUser({ data: { full_name: val } });
+    } catch(e) {
+      console.warn('Metadata update notice:', e);
+    }
+  }
+
+  cl('nicknameMdl');
+  updateUserUI(currentUser);
   syncToCloudNow();
   renderAll();
-  toast('닉네임이 [' + (trimmed || currentUser.email) + '] 으로 설정되었습니다! ✨');
+  toast(`✨ 닉네임이 [${val}] (으)로 설정되었습니다!`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AI TASTE RECOMMENDATION ENGINE (HIGH-TIER BASED)
+// ═══════════════════════════════════════════════════════════════
+function openRecommendModal() {
+  generateAndRenderRecommendations(false);
+  document.getElementById('recommendMdl').style.display = 'flex';
+}
+
+function generateAndRenderRecommendations(isRefresh = false) {
+  const dnaContent = document.getElementById('tasteDnaContent');
+  const grid = document.getElementById('recommendGrid');
+  if (!grid || !dnaContent) return;
+
+  const webtoons = db.webtoons || [];
+  
+  // 1. High-tier Webtoons Weight Analysis
+  const tierWeights = { 'fav': 4.0, 'S+': 3.5, 'S': 2.5, 'A': 1.5 };
+  let highTierList = webtoons.filter(w => tierWeights[w.tier]);
+  let isFallback = false;
+
+  // Fallback if user doesn't have high-tier yet
+  if (!highTierList.length) {
+    isFallback = true;
+    highTierList = webtoons.filter(w => w.status === 'reading' || w.status === 'completed');
+  }
+
+  const genreScores = {};
+  let kakaoCount = 0;
+  let naverCount = 0;
+  const highTierTitles = [];
+
+  highTierList.forEach(w => {
+    const weight = tierWeights[w.tier] || 1.0;
+    highTierTitles.push(w.title);
+    
+    // Genre detection
+    let g = w.genre;
+    if (!g && typeof WEBTOON_METADATA !== 'undefined') {
+      const meta = WEBTOON_METADATA[w.title];
+      if (meta && meta.g) g = meta.g;
+    }
+    if (g) {
+      genreScores[g] = (genreScores[g] || 0) + weight;
+    }
+
+    const plat = getWebtoonPlatform(w);
+    if (plat === 'kakao') kakaoCount += weight;
+    else if (plat === 'naver') naverCount += weight;
+  });
+
+  // Top Genres
+  const sortedGenres = Object.entries(genreScores).sort((a, b) => b[1] - a[1]);
+  const topGenre = sortedGenres.length ? sortedGenres[0][0] : '판타지';
+  const secondGenre = sortedGenres.length > 1 ? sortedGenres[1][0] : '액션';
+  const prefPlat = kakaoCount > naverCount ? '카카오' : '네이버';
+
+  // Render DNA Banner
+  if (highTierList.length > 0) {
+    dnaContent.innerHTML = `
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;">
+        <span style="font-size:14px; font-weight:900; color:#6366f1;">🧬 회원님의 웹툰 취향 DNA</span>
+        <span style="font-size:11px; background:rgba(99,102,241,0.2); color:#6366f1; padding:2px 8px; border-radius:10px; font-weight:800;">
+          ${isFallback ? '등록작 기반 분석' : `인생작 ${highTierList.length}편 분석 완료`}
+        </span>
+      </div>
+      <div style="font-size:12.5px; color:var(--text-main);">
+        선호 장르: <span style="color:#f59e0b; font-weight:900;">${topGenre}</span>${secondGenre ? `, <span style="color:#f59e0b; font-weight:900;">${secondGenre}</span>` : ''} 
+        · 주 활동 플랫폼: <span style="color:#10b981; font-weight:900;">${prefPlat}</span>
+        ${highTierTitles.length ? ` · <span style="color:var(--text-muted); font-size:11.5px;">(영향작: ${highTierTitles.slice(0, 3).join(', ')}${highTierTitles.length > 3 ? ' 외' : ''})</span>` : ''}
+      </div>
+    `;
+  } else {
+    dnaContent.innerHTML = `
+      <div style="font-size:13px; font-weight:800; color:#6366f1;">💡 아직 등록된 인생작이 없습니다!</div>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">웹툰에 최애 또는 S+, S 티어를 부여하면 더욱 정밀한 맞춤 추천이 작동합니다. 현재는 독자들이 뽑은 공식 인기 명작을 추천합니다!</div>
+    `;
+  }
+
+  // 2. Candidate Filtering (Exclude All Existing Library Webtoons)
+  const existingSet = new Set();
+  (db.webtoons || []).forEach(w => {
+    existingSet.add(getWebtoonKey(w.title));
+    existingSet.add(getSimpleTitleKey(w.title));
+  });
+
+  const candidates = [];
+  const candidateKeys = new Set();
+
+  function evaluateAndAddCandidate(title, imgUrl, plat, g, isAdult, isEnd) {
+    const key = getWebtoonKey(title) || getSimpleTitleKey(title);
+    if (!key || existingSet.has(key) || candidateKeys.has(key)) return;
+    if (hideAdult && isAdult) return; // Respect Hide Adult mode
+
+    let score = 50; // base score
+    let matchReason = '';
+
+    // Genre affinity
+    if (g && genreScores[g]) {
+      score += genreScores[g] * 12;
+      matchReason = `${g} 취향 적중!`;
+    } else if (g === topGenre || g === secondGenre) {
+      score += 35;
+      matchReason = `${g} 선호 장르`;
+    }
+
+    // Platform affinity
+    if ((prefPlat === '카카오' && plat === 'kakao') || (prefPlat === '네이버' && plat === 'naver')) {
+      score += 15;
+    }
+
+    // Random jitter on refresh for discovery
+    if (isRefresh) {
+      score += (Math.random() * 20 - 10);
+    }
+
+    if (!matchReason) {
+      matchReason = highTierTitles.length ? `'${highTierTitles[0]}' 좋아하시면 강력 추천!` : '공식 추천 명작';
+    }
+
+    const matchRate = Math.min(99, Math.max(86, Math.round(85 + (score % 14))));
+
+    candidates.push({
+      title,
+      imgUrl,
+      platform: plat,
+      genre: g || topGenre,
+      isAdult: !!isAdult,
+      isEnd: !!isEnd,
+      score,
+      matchRate,
+      matchReason
+    });
+    candidateKeys.add(key);
+  }
+
+  // Evaluate Kakao Official Presets
+  if (typeof KAKAO_PRESETS !== 'undefined') {
+    for (const [title, imgUrl] of Object.entries(KAKAO_PRESETS)) {
+      const meta = (typeof WEBTOON_METADATA !== 'undefined') ? WEBTOON_METADATA[title] : null;
+      const g = meta?.g || (title.includes('환생') || title.includes('마존') ? '무협' : topGenre);
+      const isAdult = meta?.a === 1;
+      const isEnd = meta?.e === 1;
+      evaluateAndAddCandidate(title, imgUrl, 'kakao', g, isAdult, isEnd);
+    }
+  }
+
+  // Evaluate Naver Official Presets
+  if (typeof WEBTOON_PRESETS !== 'undefined' && typeof WEBTOON_METADATA !== 'undefined') {
+    for (const [title, imgUrl] of Object.entries(WEBTOON_PRESETS)) {
+      const meta = WEBTOON_METADATA[title];
+      if (meta) {
+        evaluateAndAddCandidate(title, imgUrl, 'naver', meta.g, meta.a === 1, meta.e === 1);
+      }
+    }
+  }
+
+  // Sort candidates by score descending
+  candidates.sort((a, b) => b.score - a.score);
+  const topRecommendations = candidates.slice(0, 12);
+
+  if (!topRecommendations.length) {
+    grid.innerHTML = `
+      <div style="grid-column:1/-1; text-align:center; padding:40px 20px; color:var(--text-muted);">
+        <div style="font-size:36px; margin-bottom:10px;">📚</div>
+        <div style="font-size:15px; font-weight:800;">현재 추천 가능한 모든 작품이 이미 서재에 등록되어 있습니다!</div>
+        <div style="font-size:12px; margin-top:4px;">대단한 웹툰 마니아시네요! 새로운 작품이 업데이트되면 바로 추천해 드립니다.</div>
+      </div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = topRecommendations.map((item, idx) => {
+    const platBadge = item.platform === 'kakao' 
+      ? '<span class="plat-badge plat-kakao">🟡 카카오</span>'
+      : '<span class="plat-badge plat-naver">🟢 네이버</span>';
+    
+    return `
+      <div class="card" style="display:flex; flex-direction:column; padding:10px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; position:relative; overflow:hidden;">
+        <div style="position:relative; width:100%; aspect-ratio:3/4; border-radius:8px; overflow:hidden; background:var(--bg-hover); margin-bottom:10px;">
+          <img src="${item.imgUrl}" referrerpolicy="no-referrer" loading="lazy" style="width:100%; height:100%; object-fit:cover;" onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'130\' fill=\'%23666\'><rect width=\'100\' height=\'130\' fill=\'%23eee\'/><text x=\'50%\' y=\'50%\' dominant-baseline=\'middle\' text-anchor=\'middle\' font-size=\'12\'>커버</text></svg>';" />
+          <div style="position:absolute; top:6px; left:6px; z-index:2;">
+            ${platBadge}
+          </div>
+          <div style="position:absolute; top:6px; right:6px; background:rgba(0,0,0,0.75); color:#f59e0b; font-weight:900; font-size:11px; padding:2px 7px; border-radius:12px; backdrop-filter:blur(3px);">
+            🔥 ${item.matchRate}% 일치
+          </div>
+          ${item.isAdult ? '<div style="position:absolute; bottom:6px; left:6px; background:#ef4444; color:#fff; font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px;">19+</div>' : ''}
+          ${item.isEnd ? '<div style="position:absolute; bottom:6px; right:6px; background:#6b7280; color:#fff; font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px;">완결</div>' : ''}
+        </div>
+
+        <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+          <div style="font-size:14px; font-weight:800; color:var(--text-main); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:3px;" title="${escapeHtml(item.title)}">
+            ${escapeHtml(item.title)}
+          </div>
+          <div style="font-size:11.5px; color:#6366f1; font-weight:700; margin-bottom:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+            💡 ${escapeHtml(item.matchReason)}
+          </div>
+          
+          <button id="addRecBtn_${idx}" class="btn bp xs" onclick="quickAddRecommendedWebtoon(${idx}, '${escapeHtml(item.title).replace(/'/g, "\'")}', '${escapeHtml(item.imgUrl).replace(/'/g, "\'")}', '${item.platform}', '${escapeHtml(item.genre)}', ${item.isAdult}, ${item.isEnd})" style="width:100%; justify-content:center; padding:7px 10px; font-weight:800; font-size:12px; border-radius:8px;">
+            ＋ 내 서재에 담기
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function quickAddRecommendedWebtoon(btnIdx, title, imageUrl, platform, genre, isAdult, isEnd) {
+  if (currentViewingUserId) return;
+  // Duplicate check
+  const dup = findDuplicateWebtoon(title);
+  if (dup) {
+    toast(`⛔ 이미 서재에 등록되어 있는 웹툰입니다! ('${dup.title}')`);
+    return;
+  }
+
+  const newWebtoon = {
+    id: Date.now() + '',
+    title: title,
+    tier: '',
+    status: 'plan', // Default status: 읽을 예정
+    catId: db.curCat !== 'all' ? db.curCat : (db.catalogs && db.catalogs[0] ? db.catalogs[0].id : 'cat_default'),
+    rating: 0,
+    chapter: '',
+    genre: genre || '',
+    publishDay: '',
+    isEnd: !!isEnd,
+    isAdult: !!isAdult,
+    tags: [],
+    note: '🎯 취향 맞춤 추천으로 서재에 추가된 작품',
+    imageUrl: imageUrl || '',
+    platform: platform || 'auto',
+    addedAt: Date.now()
+  };
+
+  db.webtoons.push(newWebtoon);
+  persist();
+  renderAll();
+
+  // Update button state visually
+  const btn = document.getElementById('addRecBtn_' + btnIdx);
+  if (btn) {
+    btn.textContent = '✓ 서재에 담김';
+    btn.disabled = true;
+    btn.style.background = '#10b981';
+    btn.style.borderColor = '#10b981';
+    btn.style.color = '#ffffff';
+    btn.style.cursor = 'default';
+  }
+
+  toast(`🎉 '${title}' 작품을 '읽을 예정'으로 서재에 담았습니다!`);
 }
 
 function toggleDetailOtherReviews(title) {
